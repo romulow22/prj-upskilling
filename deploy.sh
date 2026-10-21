@@ -19,7 +19,7 @@ set -euo pipefail
 # Configuração
 #--------------------------------------------------------------
 REGION="${REGION:-sa-east-1}"
-BUCKET="${BUCKET:-contabil-11111992}"
+BUCKET="${BUCKET:-projeto-upskilling}"
 PROJETO="${PROJETO:-projeto-upskilling}"
 AMBIENTE="${AMBIENTE:-dev}"
 RESPONSAVEL="${RESPONSAVEL:-c153824}"

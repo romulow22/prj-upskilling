@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REGION="${REGION:-sa-east-1}"
-BUCKET="${BUCKET:-prj-upskilling}"
+BUCKET="${BUCKET:-projeto-upskilling}"
 KEY_NAME="${KEY_NAME:-code-server}"
 
 STACK_REDE="infraContabil"
