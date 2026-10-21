@@ -46,7 +46,9 @@ Conditions:
 #
 #    - Widgets de EC2 e NAT usam consultas Metrics Insights,
 #      que funcionam com o monitoramento básico (sem métricas
-#      agregadas de monitoramento detalhado).
+#      agregadas de monitoramento detalhado). Cada widget tem
+#      no máximo UMA consulta Metrics Insights (limite do
+#      GetMetricData); com duas, o gráfico exibe erro.
 #    - Widget de CloudTrail usa as métricas geradas pelos
 #      filtros de extras/auditoria-cloudtrail.yaml.
 #    - Widget de alarmes só é incluído se AlarmArns for informado.
@@ -83,7 +85,7 @@ Resources:
                   "type": "metric",
                   "x": 0,
                   "y": 2,
-                  "width": 8,
+                  "width": 6,
                   "height": 6,
                   "properties": {
                     "title": "EC2 CPU Utilization (%)",
@@ -98,9 +100,9 @@ Resources:
 
                 {
                   "type": "metric",
-                  "x": 8,
+                  "x": 6,
                   "y": 2,
-                  "width": 8,
+                  "width": 6,
                   "height": 6,
                   "properties": {
                     "title": "EC2 Status Checks (falhas)",
@@ -115,17 +117,33 @@ Resources:
 
                 {
                   "type": "metric",
-                  "x": 16,
+                  "x": 12,
                   "y": 2,
-                  "width": 8,
+                  "width": 6,
                   "height": 6,
                   "properties": {
-                    "title": "EC2 Network (bytes)",
+                    "title": "EC2 Network In (bytes)",
                     "region": "${AWS::Region}",
                     "view": "timeSeries",
                     "period": 300,
                     "metrics": [
-                      [ { "id": "netin", "label": "NetworkIn", "expression": "SELECT SUM(NetworkIn) FROM SCHEMA(\"AWS/EC2\", InstanceId)" } ],
+                      [ { "id": "netin", "label": "NetworkIn", "expression": "SELECT SUM(NetworkIn) FROM SCHEMA(\"AWS/EC2\", InstanceId)" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 18,
+                  "y": 2,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                    "title": "EC2 Network Out (bytes)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "metrics": [
                       [ { "id": "netout", "label": "NetworkOut", "expression": "SELECT SUM(NetworkOut) FROM SCHEMA(\"AWS/EC2\", InstanceId)" } ]
                     ]
                   }
@@ -156,16 +174,32 @@ Resources:
                   "type": "metric",
                   "x": 12,
                   "y": 8,
-                  "width": 12,
+                  "width": 6,
                   "height": 6,
                   "properties": {
-                    "title": "NAT Gateway Traffic (bytes processados)",
+                    "title": "NAT Gateway - saída para a internet (bytes)",
                     "region": "${AWS::Region}",
                     "view": "timeSeries",
                     "period": 300,
                     "metrics": [
-                      [ { "id": "natout", "label": "Saída para a internet", "expression": "SELECT SUM(BytesOutToDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ],
-                      [ { "id": "natin", "label": "Retorno da internet", "expression": "SELECT SUM(BytesInFromDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ]
+                      [ { "id": "natout", "label": "BytesOutToDestination", "expression": "SELECT SUM(BytesOutToDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 18,
+                  "y": 8,
+                  "width": 6,
+                  "height": 6,
+                  "properties": {
+                    "title": "NAT Gateway - retorno da internet (bytes)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "metrics": [
+                      [ { "id": "natin", "label": "BytesInFromDestination", "expression": "SELECT SUM(BytesInFromDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ]
                     ]
                   }
                 }

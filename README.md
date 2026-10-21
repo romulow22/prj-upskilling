@@ -36,6 +36,10 @@ A solução tem três camadas:
   - Controle de custos com AWS Budgets.
   - Inventário com tags e Resource Group.
 
+**Ambiente em execução:** o code-server aberto no navegador, servido pela EC2 em `sa-east-1`, com este repositório clonado no terminal integrado. O aviso *Not secure* vem do certificado autoassinado ([seção 8](#8-pendências-e-riscos)).
+
+![code-server em execução no navegador, com o repositório clonado no terminal integrado](images/vscodeserver_running.png)
+
 ---
 
 ## 2. Inventário de recursos
@@ -159,7 +163,7 @@ O [deploy.sh](deploy.sh) executa **9 etapas** em ordem. Cada etapa é uma stack 
 flowchart TD
     start(["./deploy.sh"]) --> t1
     t1["1 · templates<br/>bucket S3 privado + upload dos YAML"] --> t2
-    t2["2 · rede · stack infraContabil<br/>main.yaml + 6 nested stacks<br/>VPC, sub-redes, IGW, NAT, rotas, SG"] --> t3
+    t2["2 · rede · stack infraContabil<br/>main.yaml + 7 nested stacks<br/>VPC, sub-redes, IGW, NAT, rotas, SG"] --> t3
     t3["3 · ec2 · stack vscodeServer<br/>Key Pair + IAM Role + segredo + EC2"] --> t4
     t4["4 · auditoria · stack upsk-auditoria<br/>KMS + S3 + CloudTrail + CloudWatch Logs"] --> t5
     t5["5 · monitoramento · stack upsk-monitoramento<br/>SNS + 6 alarmes"] --> t6
@@ -180,6 +184,10 @@ flowchart TD
 | 7 | `backup` | `upsk-backup` | [extras/backup.yaml](extras/backup.yaml) | Vault, plano, seleção, IAM Role | 3 (tag `Backup=true`) | ~1 min |
 | 8 | `custos` | `upsk-custos` | [extras/custos-budget.yaml](extras/custos-budget.yaml) | Budget com 3 alertas | — | < 1 min |
 | 9 | `resumo` | — | — | Exibe os outputs de acesso | 3, 6 | — |
+
+**Resultado no console (`sa-east-1`):** as 7 stacks do `deploy.sh` e as 7 nested stacks da rede em `CREATE_COMPLETE`.
+
+![Console do CloudFormation com as 14 stacks em CREATE_COMPLETE](images/cloudformation_stack_execution.png)
 
 ### Dentro da etapa 2: ordem dos nested stacks
 
@@ -362,6 +370,10 @@ Fora do CloudShell, o `deploy.sh` e o `destroy.sh` leem as credenciais e as vari
 
 **Registro das atividades:** o trail `infra-cloudtrail` é multi-região, inclui eventos de serviços globais (como o IAM) e registra todos os eventos de gerenciamento (leitura e escrita). Os arquivos vão para o S3 com criptografia KMS e validação de integridade, para provar que não foram alterados. Os eventos também são enviados em tempo real ao CloudWatch Logs (`/aws/cloudtrail/infra-cloudtrail`, retenção de 30 dias).
 
+![Trail infra-cloudtrail com região de origem São Paulo, multirregião e status Logging](images/cloudtrail_trails.png)
+
+*Trail `infra-cloudtrail`:* região de origem São Paulo, multirregião, logs no bucket `upsk-auditoria-cloudtrailbucket-*` e no log group `/aws/cloudtrail/infra-cloudtrail`, com status *Logging*.
+
 **Logs monitorados (filtros de métrica, namespace `CloudTrailMetrics`):**
 
 | Métrica | Filtro | Uso |
@@ -386,14 +398,18 @@ Fora do CloudShell, o `deploy.sh` e o `destroy.sh` leem as credenciais e as vari
 
 > O alarme de alteração de Security Group dispara no próprio deploy da rede (`CreateSecurityGroup`). Esse é o comportamento esperado e serve de demonstração.
 
-**Evidências anexadas** (capturas a coletar após o deploy):
+![Dashboard dev-security-monitoring em execução](images/dev-security-monitoring-dashboard.png)
 
-- [ ] CloudTrail → *Trails* → `infra-cloudtrail` (status *Logging*, multi-região, validação ativa).
+*Dashboard em execução:* os painéis de CPU, status checks e eventos do CloudTrail mostram dados, e o painel de status exibe os 6 alarmes. O alarme `dev-seguranca-uso-conta-root` está em **ALARM** porque houve atividade da conta root no período (linha *Uso da conta root* do painel de eventos). Na captura, feita antes da correção, os painéis *EC2 Network* e *NAT Gateway Traffic* mostravam erro porque cada um tinha duas consultas Metrics Insights, e o CloudWatch aceita só uma consulta por gráfico. No [extras/dashboard.yaml](extras/dashboard.yaml) atual, cada consulta tem painel próprio: *EC2 Network In*, *EC2 Network Out*, *NAT Gateway - saída* e *NAT Gateway - retorno*. Para aplicar a correção em um ambiente já implantado, execute `./deploy.sh dashboard`.
+
+**Evidências** (as pendentes devem ser coletadas no ambiente em execução):
+
+- [x] CloudTrail → *Trails* → `infra-cloudtrail` (status *Logging*, multirregião) — [captura](images/cloudtrail_trails.png).
 - [ ] CloudTrail → *Event history* filtrado por `AuthorizeSecurityGroupIngress`.
 - [ ] Integridade dos logs: `aws cloudtrail validate-logs --trail-arn <arn> --start-time <data>`.
 - [ ] CloudWatch → *Log groups* → `/aws/cloudtrail/infra-cloudtrail` → *Metric filters*.
-- [ ] CloudWatch → *Alarms* (6 alarmes) e e-mail de alarme recebido.
-- [ ] CloudWatch → *Dashboards* → `dev-security-monitoring`.
+- [ ] CloudWatch → *Alarms* (6 alarmes) e e-mail de alarme recebido. O status dos 6 alarmes já aparece no dashboard.
+- [x] CloudWatch → *Dashboards* → `dev-security-monitoring` — [captura](images/dev-security-monitoring-dashboard.png).
 
 ---
 
@@ -411,6 +427,10 @@ Fora do CloudShell, o `deploy.sh` e o `destroy.sh` leem as credenciais e as vari
 | RPO / RTO estimados | RPO de 24 h / RTO de ~15–30 min (restauração da AMI + boot) |
 | Infraestrutura | Recriada pelo código (`./deploy.sh`) a partir do repositório Git e do bucket de templates versionado |
 | Logs de auditoria | Versionados, retidos por 365 dias e preservados mesmo após excluir a stack |
+
+![Plano de backup dev-codeserver-diario no console do AWS Backup](images/awsbackup_plans.png)
+
+*Plano `dev-codeserver-diario`:* regra `backup-diario` no vault `dev-codeserver-vault` e atribuição `ec2-tag-backup` com a role `upsk-backup-BackupRole-*`. Na captura, o plano tinha acabado de ser criado e ainda não havia execuções (*Last runtime* vazio e 0 jobs). A primeira janela é às 03:00.
 
 **Procedimento de teste de restauração:**
 
@@ -466,6 +486,10 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 - **Tags de custo:** ative `Projeto`, `Ambiente` e `CentroCusto` em *Billing → Cost allocation tags*. Depois, filtre o *Cost Explorer* por `Projeto=projeto-upskilling`.
 - **Medidas de economia já aplicadas:** créditos de CPU *standard* (sem cobrança de excedente), gp3, um único NAT, monitoramento básico com Metrics Insights, retenção limitada (30 dias no CloudWatch Logs, 365 dias no S3, 7 dias de backup) e `destroy.sh` para remover tudo após a apresentação.
 
+![Budget dev-codeserver-orcamento-mensal com os 3 alertas configurados](images/budgets_and_alerts.png)
+
+*Budget `dev-codeserver-orcamento-mensal`:* US$ 50/mês, e-mail de destino verificado e os 3 alertas (real > 50%, real > 80% e previsto > 100%), ainda não atingidos.
+
 **Procedimentos operacionais:**
 
 | Procedimento | Como executar |
@@ -498,6 +522,7 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 | Bucket de logs e chave KMS retidos após o `destroy.sh` | Custo residual baixo (~US$ 1/mês da chave) | Remover manualmente ao fim do período de guarda (seção 7) | c153824 |
 | Conta que já possui um trail | Cópias adicionais de eventos são cobradas (US$ 2 por 100 mil eventos) | Reaproveitar o trail existente ou remover a stack de auditoria após a apresentação | c153824 |
 | Access key de longa duração do usuário de serviço no `.env` | Alto se vazar: acesso amplo à conta | `.env` fora do Git e com `chmod 600`. Excluir a chave após a apresentação. Em produção, usar credenciais temporárias (SSO/assume-role) e política restrita | c153824 |
+| Uso da conta root detectado (alarme `dev-seguranca-uso-conta-root` em ALARM no dashboard) | Alto: a root não tem restrição de permissões | Usar usuário IAM ou o usuário de serviço no console e no deploy, ativar MFA na root e reservá-la às tarefas que a exigem | c153824 |
 
 ---
 
@@ -507,7 +532,7 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 - [x] Inventário de recursos preenchido — [seção 2](#2-inventário-de-recursos)
 - [x] Regras de rede e permissões revisadas — [seção 4](#4-segurança-e-governança)
 - [x] Criptografia e proteção do S3 verificadas — [seção 4](#4-segurança-e-governança)
-- [ ] Auditoria e monitoramento evidenciados — controles implementados ([seção 5](#5-auditoria-e-monitoramento)); **anexar as capturas após o deploy**
+- [ ] Auditoria e monitoramento evidenciados — capturas do trail e do dashboard anexadas ([seção 5](#5-auditoria-e-monitoramento)); **faltam event history, validação dos logs, filtros de métrica e e-mail de alarme**
 - [x] Backup e recuperação documentados — [seção 6](#6-backup-e-recuperação) (registrar o resultado do teste)
 - [x] Custos e alertas documentados — [seção 7](#7-custos-e-operação)
 - [x] Pendências e riscos registrados — [seção 8](#8-pendências-e-riscos)
@@ -537,6 +562,7 @@ prj-upskilling/
 │   ├── dashboard.yaml                # Dashboard do CloudWatch
 │   ├── backup.yaml                   # AWS Backup (vault, plano e seleção)
 │   └── custos-budget.yaml            # AWS Budgets
+├── images/                           # Capturas do ambiente em execução (evidências)
 ├── relatorio_infra_aws.docx          # Modelo original do relatório
 └── README.md                         # Este relatório
 ```
