@@ -1,0 +1,73 @@
+#--------------------------------------------------
+# Arquivo gateways.yaml - Config dos Gateways (IGW, EIP e NAT)
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Gateways da Infra Code Server (Internet, NAT, Elastic IP, AttachGateway)
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID da VPC
+  SubnetPub:
+    Type: AWS::EC2::Subnet::Id
+    Description: ID da Subnet Pública
+
+Resources:
+  #=====================================
+  # Internet Gateway
+  #=====================================
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CodeServer-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VpcId
+
+  #=====================================
+  # Elastic IP para o NAT Gateway
+  #=====================================
+  NatEIP:
+    Type: AWS::EC2::EIP
+
+    DependsOn: AttachGateway
+
+    Properties:
+      Domain: vpc
+
+      Tags:
+        - Key: Name
+          Value: CodeServer-nat-eip
+
+  #=====================================
+  # NAT Gateway
+  #=====================================
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref SubnetPub
+
+      Tags:
+        - Key: Name
+          Value: NAT Gateway
+
+Outputs:
+  InternetGatewayId:
+    Description: ID da Internet Gateway
+    Value: !Ref InternetGateway
+  NatEIPId:
+    Description: ID do Elastic IP da sub-rede NAT
+    Value: !Ref NatEIP
+  NatGatewayId:
+    Description: ID do NAT Gateway
+    Value: !Ref NatGateway

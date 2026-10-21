@@ -1,0 +1,148 @@
+#--------------------------------------------------
+# Arquivo backup.yaml - Backup da EC2 com AWS Backup
+#--------------------------------------------------
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  AWS Backup para a Infra Code Server: cofre (vault) criptografado,
+  plano de backup diário com retenção configurável e seleção automática
+  das instâncias EC2 que possuem a tag Backup=true.
+
+
+#============================================================
+#    PARAMETERS
+#============================================================
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Nome do ambiente
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+
+  RetencaoDias:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 365
+    Description: Quantidade de dias que cada ponto de recuperação é mantido
+
+  Agendamento:
+    Type: String
+    Default: cron(0 3 * * ? *)
+    Description: Expressão cron do backup diário (fuso America/Sao_Paulo)
+
+
+Resources:
+
+  # ============================================================
+  # Backup Vault
+  # Sem EncryptionKeyArn: usa a chave gerenciada aws/backup.
+  # Backups de EBS herdam a criptografia do volume de origem.
+  # ============================================================
+
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+
+    Properties:
+      BackupVaultName: !Sub '${Environment}-codeserver-vault'
+
+
+  # ============================================================
+  # IAM Role usada pelo AWS Backup (backup e restauração)
+  # ============================================================
+
+  BackupRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      Description: Role do AWS Backup para a Infra Code Server
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - backup.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup'
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores'
+
+
+  # ============================================================
+  # Plano de backup diário
+  # ============================================================
+
+  BackupPlan:
+    Type: AWS::Backup::BackupPlan
+
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub '${Environment}-codeserver-diario'
+
+        BackupPlanRule:
+          - RuleName: backup-diario
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: !Ref Agendamento
+            ScheduleExpressionTimezone: America/Sao_Paulo
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+
+            Lifecycle:
+              DeleteAfterDays: !Ref RetencaoDias
+
+            RecoveryPointTags:
+              Environment: !Ref Environment
+              Origem: AWSBackup
+
+
+  # ============================================================
+  # Seleção: somente instâncias EC2 com a tag Backup=true
+  # (Resources + Conditions = lógica AND)
+  # ============================================================
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+
+    Properties:
+      BackupPlanId: !Ref BackupPlan
+
+      BackupSelection:
+        SelectionName: ec2-tag-backup
+        IamRoleArn: !GetAtt BackupRole.Arn
+
+        Resources:
+          - !Sub 'arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+
+        Conditions:
+          StringEquals:
+            - ConditionKey: aws:ResourceTag/Backup
+              ConditionValue: 'true'
+
+
+#============================================================
+#    OUTPUTS
+#============================================================
+
+Outputs:
+
+  BackupVaultName:
+    Description: Nome do cofre de backup
+    Value: !Ref BackupVault
+
+  BackupVaultArn:
+    Description: ARN do cofre de backup
+    Value: !GetAtt BackupVault.BackupVaultArn
+
+  BackupPlanId:
+    Description: ID do plano de backup
+    Value: !Ref BackupPlan
+
+  BackupRoleArn:
+    Description: ARN da role usada nos jobs de backup e restauração
+    Value: !GetAtt BackupRole.Arn

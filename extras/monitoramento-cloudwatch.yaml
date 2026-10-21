@@ -1,0 +1,380 @@
+#--------------------------------------------------
+# Arquivo monitoramento-cloudwatch.yaml - Alarmes do CloudWatch + SNS
+#--------------------------------------------------
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  CloudWatch monitoring para EC2 utilizando somente métricas nativas
+  do Amazon EC2, sem CloudWatch Agent e sem IAM Role adicional
+  nas instâncias, e alarmes de segurança a partir das métricas do
+  CloudTrail (namespace CloudTrailMetrics). Notificações por e-mail (SNS).
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Ambiente monitorado
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+
+  NotificationEmail:
+    Type: String
+    Description: E-mail para receber notificações dos alarmes
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: Informe um e-mail válido
+
+  CPUThreshold:
+    Type: Number
+    Default: 80
+    Description: Limite de CPU em percentual
+
+  NetworkInThreshold:
+    Type: Number
+    Default: 1073741824
+    Description: >
+      Limite de NetworkIn em bytes por período.
+      Default = 1 GiB por período.
+
+  NetworkOutThreshold:
+    Type: Number
+    Default: 1073741824
+    Description: >
+      Limite de NetworkOut em bytes por período.
+      Default = 1 GiB por período.
+
+
+Resources:
+
+  # ============================================================
+  # SNS
+  # ============================================================
+
+  CloudWatchAlarmTopic:
+    Type: AWS::SNS::Topic
+
+    Properties:
+      TopicName: !Sub '${Environment}-ec2-alerts'
+
+      DisplayName: !Sub '${Environment} EC2 Alerts'
+
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+        - Key: Purpose
+          Value: CloudWatch
+
+
+  CloudWatchAlarmSubscription:
+    Type: AWS::SNS::Subscription
+
+    Properties:
+      TopicArn: !Ref CloudWatchAlarmTopic
+
+      Protocol: email
+
+      Endpoint: !Ref NotificationEmail
+
+
+  # ============================================================
+  # CPU
+  #
+  # Monitora a maior utilização de CPU entre as EC2
+  # encontradas pela consulta Metrics Insights.
+  #
+  # O threshold é aplicado pelo CloudWatch Alarm.
+  # ============================================================
+
+  EC2HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-ec2-high-cpu'
+
+      AlarmDescription: >
+        Alerta quando alguma EC2 do ambiente apresenta CPU elevada.
+
+      Metrics:
+
+        - Id: cpu
+
+          Expression: >
+            SELECT MAX(CPUUtilization)
+            FROM SCHEMA("AWS/EC2", InstanceId)
+
+          Period: 300
+
+          ReturnData: true
+
+      Threshold: !Ref CPUThreshold
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      EvaluationPeriods: 2
+
+      DatapointsToAlarm: 2
+
+      TreatMissingData: notBreaching
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+      OKActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+  # ============================================================
+  # STATUS CHECK
+  #
+  # Monitora a maior quantidade de falhas de status check
+  # entre as EC2.
+  # ============================================================
+
+  EC2StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-ec2-status-check'
+
+      AlarmDescription: >
+        Alerta quando uma EC2 apresenta falha de status check.
+
+      Metrics:
+
+        - Id: statuscheck
+
+          Expression: >
+            SELECT MAX(StatusCheckFailed)
+            FROM SCHEMA("AWS/EC2", InstanceId)
+
+          Period: 60
+
+          ReturnData: true
+
+      Threshold: 1
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      EvaluationPeriods: 2
+
+      DatapointsToAlarm: 2
+
+      TreatMissingData: missing
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+      OKActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+  # ============================================================
+  # NETWORK IN
+  #
+  # Monitora a maior quantidade de bytes recebidos
+  # por uma EC2 em um período de 5 minutos.
+  # ============================================================
+
+  EC2HighNetworkInAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-ec2-high-network-in'
+
+      AlarmDescription: >
+        Alerta quando o tráfego de entrada de alguma EC2
+        ultrapassa o limite configurado no período.
+
+      Metrics:
+
+        - Id: networkin
+
+          Expression: >
+            SELECT MAX(NetworkIn)
+            FROM SCHEMA("AWS/EC2", InstanceId)
+
+          Period: 300
+
+          ReturnData: true
+
+      Threshold: !Ref NetworkInThreshold
+
+      ComparisonOperator: GreaterThanThreshold
+
+      EvaluationPeriods: 3
+
+      DatapointsToAlarm: 2
+
+      TreatMissingData: notBreaching
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+  # ============================================================
+  # NETWORK OUT
+  #
+  # Monitora a maior quantidade de bytes enviados
+  # por uma EC2 em um período de 5 minutos.
+  # ============================================================
+
+  EC2HighNetworkOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-ec2-high-network-out'
+
+      AlarmDescription: >
+        Alerta quando o tráfego de saída de alguma EC2
+        ultrapassa o limite configurado no período.
+
+      Metrics:
+
+        - Id: networkout
+
+          Expression: >
+            SELECT MAX(NetworkOut)
+            FROM SCHEMA("AWS/EC2", InstanceId)
+
+          Period: 300
+
+          ReturnData: true
+
+      Threshold: !Ref NetworkOutThreshold
+
+      ComparisonOperator: GreaterThanThreshold
+
+      EvaluationPeriods: 3
+
+      DatapointsToAlarm: 2
+
+      TreatMissingData: notBreaching
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+  # ============================================================
+  # SEGURANÇA - ALTERAÇÃO EM SECURITY GROUP
+  #
+  # Métrica gerada pelo filtro do CloudTrail
+  # (extras/auditoria-cloudtrail.yaml).
+  # ============================================================
+
+  SecurityGroupChangeAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-seguranca-alteracao-security-group'
+
+      AlarmDescription: >
+        Alerta quando um Security Group é criado, alterado ou removido
+        (eventos registrados pelo CloudTrail).
+
+      Namespace: CloudTrailMetrics
+
+      MetricName: AlteracoesSecurityGroup
+
+      Statistic: Sum
+
+      Period: 300
+
+      Threshold: 1
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      EvaluationPeriods: 1
+
+      TreatMissingData: notBreaching
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+  # ============================================================
+  # SEGURANÇA - USO DA CONTA ROOT
+  # ============================================================
+
+  RootAccountUsageAlarm:
+    Type: AWS::CloudWatch::Alarm
+
+    Properties:
+
+      AlarmName: !Sub '${Environment}-seguranca-uso-conta-root'
+
+      AlarmDescription: >
+        Alerta quando a conta root é utilizada
+        (eventos registrados pelo CloudTrail).
+
+      Namespace: CloudTrailMetrics
+
+      MetricName: UsoContaRoot
+
+      Statistic: Sum
+
+      Period: 300
+
+      Threshold: 1
+
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+
+      EvaluationPeriods: 1
+
+      TreatMissingData: notBreaching
+
+      AlarmActions:
+        - !Ref CloudWatchAlarmTopic
+
+
+# ==============================================================
+# OUTPUTS
+# ==============================================================
+Outputs:
+
+  SNSTopicArn:
+    Description: ARN do SNS utilizado pelos alarmes
+    Value: !Ref CloudWatchAlarmTopic
+
+  SNSTopicName:
+    Description: Nome do tópico SNS utilizado pelos alarmes
+    Value: !GetAtt CloudWatchAlarmTopic.TopicName
+
+  CPUAlarmName:
+    Description: Nome do alarme de CPU
+    Value: !Ref EC2HighCPUAlarm
+
+  StatusCheckAlarmName:
+    Description: Nome do alarme de Status Check
+    Value: !Ref EC2StatusCheckAlarm
+
+  NetworkInAlarmName:
+    Description: Nome do alarme de Network In
+    Value: !Ref EC2HighNetworkInAlarm
+
+  NetworkOutAlarmName:
+    Description: Nome do alarme de Network Out
+    Value: !Ref EC2HighNetworkOutAlarm
+
+  SecurityGroupChangeAlarmName:
+    Description: Nome do alarme de alteração em Security Group
+    Value: !Ref SecurityGroupChangeAlarm
+
+  RootAccountUsageAlarmName:
+    Description: Nome do alarme de uso da conta root
+    Value: !Ref RootAccountUsageAlarm
+
+  AlarmArns:
+    Description: ARNs de todos os alarmes (usado pelo dashboard)
+    Value: !Join
+      - ','
+      - - !GetAtt EC2HighCPUAlarm.Arn
+        - !GetAtt EC2StatusCheckAlarm.Arn
+        - !GetAtt EC2HighNetworkInAlarm.Arn
+        - !GetAtt EC2HighNetworkOutAlarm.Arn
+        - !GetAtt SecurityGroupChangeAlarm.Arn
+        - !GetAtt RootAccountUsageAlarm.Arn

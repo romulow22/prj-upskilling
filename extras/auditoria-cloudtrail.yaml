@@ -1,0 +1,468 @@
+#--------------------------------------------------
+# Arquivo auditoria-cloudtrail.yaml - Auditoria com AWS CloudTrail
+#--------------------------------------------------
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Cria um AWS CloudTrail multi-região para registrar as atividades da
+  conta, incluindo eventos do Amazon EC2. Os logs são gravados em um
+  bucket S3 criptografado com chave SSE-KMS (rotação automática),
+  bloqueio de acesso público, versionamento, validação de integridade e
+  ciclo de vida; e enviados ao CloudWatch Logs, onde filtros de métrica
+  geram indicadores de segurança (namespace CloudTrailMetrics).
+
+Parameters:
+
+  TrailName:
+    Type: String
+    Default: infra-cloudtrail
+    Description: Nome do CloudTrail
+
+  EnableLogFileValidation:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Habilita a validação de integridade dos arquivos do CloudTrail
+
+  RetencaoLogsS3Dias:
+    Type: Number
+    Default: 365
+    MinValue: 30
+    Description: Dias de retenção dos logs no S3 (versões antigas expiram 30 dias depois)
+
+  RetencaoLogsCloudWatchDias:
+    Type: Number
+    Default: 30
+    AllowedValues: [7, 14, 30, 60, 90, 180, 365]
+    Description: Dias de retenção dos logs no CloudWatch Logs
+
+
+Resources:
+
+  # ============================================================
+  # KMS Key
+  # Retida ao excluir a stack: sem ela os logs retidos não
+  # poderiam ser descriptografados.
+  # ============================================================
+
+  CloudTrailKMSKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+      Description: >
+        Chave KMS utilizada para criptografar os logs
+        do CloudTrail no S3.
+
+      # Rotação automática padrão do AWS KMS
+      EnableKeyRotation: true
+
+      KeyPolicy:
+        Version: '2012-10-17'
+
+        Statement:
+
+          - Sid: EnableIAMUserPermissions
+            Effect: Allow
+
+            Principal:
+              AWS:
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+
+            Action:
+              - kms:*
+
+            Resource: '*'
+
+          - Sid: AllowCloudTrailToEncryptLogs
+            Effect: Allow
+
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+
+            Action:
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+
+            Resource: '*'
+
+            Condition:
+              StringEquals:
+                aws:SourceAccount:
+                  - !Ref AWS::AccountId
+
+              ArnLike:
+                aws:SourceArn:
+                  - !Sub arn:${AWS::Partition}:cloudtrail:*:${AWS::AccountId}:trail/${TrailName}
+
+
+  # ============================================================
+  # KMS Alias
+  # ============================================================
+
+  CloudTrailKMSAlias:
+    Type: AWS::KMS::Alias
+
+    Properties:
+      AliasName: !Sub alias/${TrailName}-logs
+
+      TargetKeyId: !Ref CloudTrailKMSKey
+
+
+  # ============================================================
+  # S3 Bucket para os logs do CloudTrail
+  # Retido ao excluir a stack (evidência de auditoria).
+  # ============================================================
+
+  CloudTrailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+
+      BucketEncryption:
+
+        ServerSideEncryptionConfiguration:
+
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt CloudTrailKMSKey.Arn
+
+            BucketKeyEnabled: true
+
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      VersioningConfiguration:
+        Status: Enabled
+
+      LifecycleConfiguration:
+        Rules:
+          - Id: RetencaoLogsCloudTrail
+            Status: Enabled
+            ExpirationInDays: !Ref RetencaoLogsS3Dias
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+
+      Tags:
+
+        - Key: Name
+          Value: !Sub '${TrailName}-logs'
+
+        - Key: Purpose
+          Value: CloudTrailLogs
+
+        - Key: Encryption
+          Value: KMS
+
+
+  # ============================================================
+  # S3 Bucket Policy
+  # ============================================================
+
+  CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+
+    DependsOn:
+      - CloudTrailKMSKey
+
+    Properties:
+
+      Bucket: !Ref CloudTrailBucket
+
+      PolicyDocument:
+
+        Version: '2012-10-17'
+
+        Statement:
+
+          # ----------------------------------------------------
+          # CloudTrail verifica o bucket
+          # ----------------------------------------------------
+
+          - Sid: AWSCloudTrailAclCheck
+
+            Effect: Allow
+
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+
+            Action:
+              - s3:GetBucketAcl
+
+            Resource:
+              - !GetAtt CloudTrailBucket.Arn
+
+            Condition:
+              StringEquals:
+                aws:SourceAccount:
+                  - !Ref AWS::AccountId
+
+
+          # ----------------------------------------------------
+          # CloudTrail grava os logs
+          # ----------------------------------------------------
+
+          - Sid: AWSCloudTrailWrite
+
+            Effect: Allow
+
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+
+            Action:
+              - s3:PutObject
+
+            Resource:
+              - !Sub '${CloudTrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*'
+
+            Condition:
+
+              StringEquals:
+
+                aws:SourceAccount:
+                  - !Ref AWS::AccountId
+
+                s3:x-amz-acl:
+                  - bucket-owner-full-control
+
+
+          # ----------------------------------------------------
+          # Bloqueia qualquer transporte não criptografado
+          # ----------------------------------------------------
+
+          - Sid: DenyInsecureTransport
+
+            Effect: Deny
+
+            Principal:
+              AWS: '*'
+
+            Action:
+              - s3:*
+
+            Resource:
+              - !GetAtt CloudTrailBucket.Arn
+              - !Sub '${CloudTrailBucket.Arn}/*'
+
+            Condition:
+              Bool:
+                aws:SecureTransport:
+                  - 'false'
+
+
+  # ============================================================
+  # CloudWatch Logs - destino em tempo real dos eventos
+  # ============================================================
+
+  CloudTrailLogGroup:
+    Type: AWS::Logs::LogGroup
+
+    Properties:
+      LogGroupName: !Sub '/aws/cloudtrail/${TrailName}'
+      RetentionInDays: !Ref RetencaoLogsCloudWatchDias
+
+
+  CloudTrailLogsRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      Description: Permite ao CloudTrail gravar no CloudWatch Logs
+
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+      Policies:
+        - PolicyName: CloudTrailParaCloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !GetAtt CloudTrailLogGroup.Arn
+
+
+  # ============================================================
+  # Filtros de métrica (namespace CloudTrailMetrics)
+  # Usados pelo dashboard e pelos alarmes de segurança
+  # ============================================================
+
+  EventosEC2MetricFilter:
+    Type: AWS::Logs::MetricFilter
+
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: '{ $.eventSource = "ec2.amazonaws.com" }'
+      MetricTransformations:
+        - MetricNamespace: CloudTrailMetrics
+          MetricName: EventosEC2
+          MetricValue: '1'
+          DefaultValue: 0
+
+
+  AlteracoesSecurityGroupMetricFilter:
+    Type: AWS::Logs::MetricFilter
+
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: >-
+        { ($.eventName = AuthorizeSecurityGroupIngress) ||
+        ($.eventName = AuthorizeSecurityGroupEgress) ||
+        ($.eventName = RevokeSecurityGroupIngress) ||
+        ($.eventName = RevokeSecurityGroupEgress) ||
+        ($.eventName = CreateSecurityGroup) ||
+        ($.eventName = DeleteSecurityGroup) }
+      MetricTransformations:
+        - MetricNamespace: CloudTrailMetrics
+          MetricName: AlteracoesSecurityGroup
+          MetricValue: '1'
+          DefaultValue: 0
+
+
+  ChamadasNaoAutorizadasMetricFilter:
+    Type: AWS::Logs::MetricFilter
+
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: '{ ($.errorCode = "*UnauthorizedOperation") || ($.errorCode = "AccessDenied*") }'
+      MetricTransformations:
+        - MetricNamespace: CloudTrailMetrics
+          MetricName: ChamadasNaoAutorizadas
+          MetricValue: '1'
+          DefaultValue: 0
+
+
+  UsoContaRootMetricFilter:
+    Type: AWS::Logs::MetricFilter
+
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroup
+      FilterPattern: '{ $.userIdentity.type = "Root" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != "AwsServiceEvent" }'
+      MetricTransformations:
+        - MetricNamespace: CloudTrailMetrics
+          MetricName: UsoContaRoot
+          MetricValue: '1'
+          DefaultValue: 0
+
+
+  # ============================================================
+  # CloudTrail
+  # ============================================================
+
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+
+    DependsOn:
+      - CloudTrailBucketPolicy
+
+    Properties:
+
+      TrailName: !Ref TrailName
+
+      S3BucketName: !Ref CloudTrailBucket
+
+      IsLogging: true
+
+      IncludeGlobalServiceEvents: true
+
+      IsMultiRegionTrail: true
+
+      EnableLogFileValidation: !Ref EnableLogFileValidation
+
+      # --------------------------------------------------------
+      # KMS
+      # --------------------------------------------------------
+
+      KMSKeyId: !GetAtt CloudTrailKMSKey.Arn
+
+      # --------------------------------------------------------
+      # CloudWatch Logs
+      # --------------------------------------------------------
+
+      CloudWatchLogsLogGroupArn: !GetAtt CloudTrailLogGroup.Arn
+
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailLogsRole.Arn
+
+      # --------------------------------------------------------
+      # Management Events
+      # --------------------------------------------------------
+
+      EventSelectors:
+
+        - IncludeManagementEvents: true
+
+          ReadWriteType: All
+
+      Tags:
+
+        - Key: Name
+          Value: !Ref TrailName
+
+        - Key: Purpose
+          Value: InfrastructureAudit
+
+
+# ==============================================================
+# Outputs
+# ==============================================================
+
+Outputs:
+
+  CloudTrailName:
+    Description: Nome do CloudTrail criado
+    Value: !Ref CloudTrail
+
+
+  CloudTrailBucket:
+    Description: Bucket S3 onde os logs serão armazenados
+    Value: !Ref CloudTrailBucket
+
+
+  CloudTrailBucketArn:
+    Description: ARN do bucket S3
+    Value: !GetAtt CloudTrailBucket.Arn
+
+
+  CloudTrailKMSKeyId:
+    Description: ID da chave KMS usada pelo CloudTrail
+    Value: !Ref CloudTrailKMSKey
+
+
+  CloudTrailKMSKeyArn:
+    Description: ARN da chave KMS
+    Value: !GetAtt CloudTrailKMSKey.Arn
+
+
+  CloudTrailKMSAlias:
+    Description: Alias da chave KMS
+    Value: !Sub alias/${TrailName}-logs
+
+
+  MultiRegionTrail:
+    Description: Indica que o Trail monitora todas as regiões
+    Value: 'true'
+
+
+  CloudTrailLogGroupName:
+    Description: Log group do CloudWatch Logs que recebe os eventos
+    Value: !Ref CloudTrailLogGroup

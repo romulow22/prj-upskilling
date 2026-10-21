@@ -1,0 +1,4 @@
+# Chaves privadas e segredos locais nunca devem ser versionados
+*.pem
+*.key
+.env

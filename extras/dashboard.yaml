@@ -1,0 +1,214 @@
+#--------------------------------------------------
+# Arquivo dashboard.yaml - Dashboard do CloudWatch (infraestrutura + segurança)
+#--------------------------------------------------
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Dashboard de monitoramento de segurança e infraestrutura
+  utilizando Amazon CloudWatch e AWS CloudTrail.
+
+
+#============================================================
+#    PARAMETERS
+#============================================================
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Nome do ambiente
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+
+  AlarmArns:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      ARNs dos alarmes exibidos no dashboard, separados por vírgula
+      (output AlarmArns da stack de monitoramento).
+      Deixe vazio caso não existam alarmes.
+
+
+#============================================================
+#    CONDITIONS
+#============================================================
+
+Conditions:
+
+  HasAlarms: !Not
+    - !Equals
+      - !Join ['', !Ref AlarmArns]
+      - ''
+
+
+#============================================================
+#    DASHBOARD
+#
+#    - Widgets de EC2 e NAT usam consultas Metrics Insights,
+#      que funcionam com o monitoramento básico (sem métricas
+#      agregadas de monitoramento detalhado).
+#    - Widget de CloudTrail usa as métricas geradas pelos
+#      filtros de extras/auditoria-cloudtrail.yaml.
+#    - Widget de alarmes só é incluído se AlarmArns for informado.
+#============================================================
+
+Resources:
+
+  SecurityMonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+
+    Properties:
+
+      DashboardName: !Sub '${Environment}-security-monitoring'
+
+      DashboardBody: !Join
+        - ''
+        -
+          - !Sub |
+            {
+              "widgets": [
+
+                {
+                  "type": "text",
+                  "x": 0,
+                  "y": 0,
+                  "width": 24,
+                  "height": 2,
+                  "properties": {
+                    "markdown": "# AWS Security & Infrastructure Monitoring\n## Environment: ${Environment}\n\nDashboard de monitoramento de infraestrutura (EC2 e NAT Gateway) e segurança (CloudTrail)."
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 0,
+                  "y": 2,
+                  "width": 8,
+                  "height": 6,
+                  "properties": {
+                    "title": "EC2 CPU Utilization (%)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "metrics": [
+                      [ { "id": "cpu", "label": "CPU", "expression": "SELECT AVG(CPUUtilization) FROM SCHEMA(\"AWS/EC2\", InstanceId) GROUP BY InstanceId" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 8,
+                  "y": 2,
+                  "width": 8,
+                  "height": 6,
+                  "properties": {
+                    "title": "EC2 Status Checks (falhas)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 60,
+                    "metrics": [
+                      [ { "id": "status", "label": "StatusCheckFailed", "expression": "SELECT MAX(StatusCheckFailed) FROM SCHEMA(\"AWS/EC2\", InstanceId) GROUP BY InstanceId" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 16,
+                  "y": 2,
+                  "width": 8,
+                  "height": 6,
+                  "properties": {
+                    "title": "EC2 Network (bytes)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "metrics": [
+                      [ { "id": "netin", "label": "NetworkIn", "expression": "SELECT SUM(NetworkIn) FROM SCHEMA(\"AWS/EC2\", InstanceId)" } ],
+                      [ { "id": "netout", "label": "NetworkOut", "expression": "SELECT SUM(NetworkOut) FROM SCHEMA(\"AWS/EC2\", InstanceId)" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 0,
+                  "y": 8,
+                  "width": 12,
+                  "height": 6,
+                  "properties": {
+                    "title": "CloudTrail Events (auditoria)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "stat": "Sum",
+                    "metrics": [
+                      [ "CloudTrailMetrics", "EventosEC2", { "label": "Eventos de API do EC2" } ],
+                      [ "CloudTrailMetrics", "AlteracoesSecurityGroup", { "label": "Alterações em Security Group" } ],
+                      [ "CloudTrailMetrics", "ChamadasNaoAutorizadas", { "label": "Chamadas não autorizadas" } ],
+                      [ "CloudTrailMetrics", "UsoContaRoot", { "label": "Uso da conta root" } ]
+                    ]
+                  }
+                },
+
+                {
+                  "type": "metric",
+                  "x": 12,
+                  "y": 8,
+                  "width": 12,
+                  "height": 6,
+                  "properties": {
+                    "title": "NAT Gateway Traffic (bytes processados)",
+                    "region": "${AWS::Region}",
+                    "view": "timeSeries",
+                    "period": 300,
+                    "metrics": [
+                      [ { "id": "natout", "label": "Saída para a internet", "expression": "SELECT SUM(BytesOutToDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ],
+                      [ { "id": "natin", "label": "Retorno da internet", "expression": "SELECT SUM(BytesInFromDestination) FROM SCHEMA(\"AWS/NATGateway\", NatGatewayId)" } ]
+                    ]
+                  }
+                }
+          - !If
+            - HasAlarms
+            - !Sub
+              - |
+                ,
+
+                {
+                  "type": "alarm",
+                  "x": 0,
+                  "y": 14,
+                  "width": 24,
+                  "height": 6,
+                  "properties": {
+                    "title": "Alarmes (EC2 e segurança)",
+                    "alarms": [
+                      "${ListaAlarmes}"
+                    ]
+                  }
+                }
+              - ListaAlarmes: !Join ['","', !Ref AlarmArns]
+            - ''
+          - |
+            ]
+            }
+
+
+#============================================================
+#    OUTPUTS
+#============================================================
+
+Outputs:
+
+  SecurityDashboardURL:
+    Description: URL do dashboard de CloudWatch
+
+    Value: !Sub >
+      https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${Environment}-security-monitoring
+
+
+  SecurityDashboardName:
+    Description: Nome do dashboard de segurança
+
+    Value: !Sub '${Environment}-security-monitoring'

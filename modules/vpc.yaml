@@ -1,0 +1,41 @@
+#--------------------------------------------------
+# Arquivo vpc.yaml - Config da VPC
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  VPC da Infra Code Server
+
+Parameters:
+  Name:
+    Type: String
+    Description: Nome da VPC
+    Default: CodeServer
+  CidrVPCBus:
+    Type: Number
+    Description: Barramento do Cidr da VPC
+    Default: 16
+
+Resources:
+  #-------------------------------------
+  # VPC - 10.0.0.0/16 - 65.536 ip's - 2¹⁶
+  # Infra Code Server
+  #-------------------------------------
+  UPSKVPC:
+    Type: AWS::EC2::VPC
+
+    Properties:
+      CidrBlock: !Sub 10.0.0.0/${CidrVPCBus}
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${Name}-VPC
+
+Outputs:
+  VpcId:
+    Description: ID da VPC criada
+    Value: !Ref UPSKVPC
+    Export:
+      Name: UPSK-VPC

@@ -1,0 +1,177 @@
+#--------------------------------------------------
+# Arquivo main.yaml - Stack principal (root)
+# Orquestra os nested stacks da pasta modules/
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Stack principal da Infra Code Server. Cria a rede (VPC, sub-redes
+  pública e privada, Internet Gateway, NAT Gateway e tabelas de rotas),
+  o Security Group e o Resource Group de inventário por meio de nested
+  stacks armazenados no bucket S3 de templates.
+
+Parameters:
+  BucketS3:
+    Type: String
+    Description: Endpoint do bucket com os templates (ex. meu-bucket.s3.us-east-1)
+  NameVPC:
+    Type: String
+    Default: codeserver
+    Description: Nome da VPC (tag Name = <NameVPC>-VPC)
+  CidrSubnetPublica:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR da sub-rede pública (EC2 code-server e NAT Gateway)
+  CidrSubnetPrivada:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR da sub-rede privada (saída para internet via NAT)
+  SSHCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR autorizado na porta 22 (recomendado - IP do administrador /32)
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+    ConstraintDescription: Informe um CIDR IPv4 válido (ex. 200.10.20.30/32)
+  Projeto:
+    Type: String
+    Default: projeto-upskilling
+    Description: Valor da tag Projeto usada no Resource Group de inventário
+
+Resources:
+  #=====================================
+  # VPC - 10.0.0.0/16
+  #=====================================
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/vpc.yaml
+      Parameters:
+        Name: !Ref NameVPC
+
+  #=====================================
+  # Sub-redes (mesma AZ do NAT Gateway)
+  #=====================================
+  SubnetPublicaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/subnet.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SubnetCidr: !Ref CidrSubnetPublica
+        Public: "true"
+        AZ: "0"
+        SubnetName: Subnet-Publica
+
+  SubnetPrivadaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/subnet.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SubnetCidr: !Ref CidrSubnetPrivada
+        Public: "false"
+        AZ: "0"
+        SubnetName: Subnet-Privada
+
+  #=====================================
+  # Internet Gateway + Elastic IP + NAT Gateway
+  #=====================================
+  GatewaysStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/gateways.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SubnetPub: !GetAtt SubnetPublicaStack.Outputs.SubnetId
+
+  #=====================================
+  # Tabelas de rotas
+  # pública: 0.0.0.0/0 -> Internet Gateway
+  # privada: 0.0.0.0/0 -> NAT Gateway
+  #=====================================
+  RouteTablePublicaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/routeTables.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SubnetId: !GetAtt SubnetPublicaStack.Outputs.SubnetId
+        TipoGateway: pub
+        GatewayId: !GetAtt GatewaysStack.Outputs.InternetGatewayId
+
+  RouteTablePrivadaStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/routeTables.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SubnetId: !GetAtt SubnetPrivadaStack.Outputs.SubnetId
+        TipoGateway: priv
+        GatewayId: !GetAtt GatewaysStack.Outputs.NatGatewayId
+
+  #=====================================
+  # Security Group (firewall da EC2)
+  #=====================================
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+
+    Properties:
+      TemplateURL: !Sub https://${BucketS3}.amazonaws.com/modules/security.yaml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        SGName: CodeServer
+        SSHCidr: !Ref SSHCidr
+
+  #=====================================
+  # Inventário - agrupa todos os recursos com a tag Projeto
+  #=====================================
+  InventarioResourceGroup:
+    Type: AWS::ResourceGroups::Group
+
+    Properties:
+      Name: !Sub ${Projeto}-inventario
+      Description: Inventario dos recursos do projeto filtrados pela tag Projeto
+      ResourceQuery:
+        Type: TAG_FILTERS_1_0
+        Query:
+          ResourceTypeFilters:
+            - AWS::AllSupported
+          TagFilters:
+            - Key: Projeto
+              Values:
+                - !Ref Projeto
+
+Outputs:
+  VpcId:
+    Description: ID da VPC
+    Value: !GetAtt VPCStack.Outputs.VpcId
+  SubnetPublicaId:
+    Description: ID da sub-rede pública
+    Value: !GetAtt SubnetPublicaStack.Outputs.SubnetId
+  SubnetPrivadaId:
+    Description: ID da sub-rede privada
+    Value: !GetAtt SubnetPrivadaStack.Outputs.SubnetId
+  InternetGatewayId:
+    Description: ID do Internet Gateway
+    Value: !GetAtt GatewaysStack.Outputs.InternetGatewayId
+  NatGatewayId:
+    Description: ID do NAT Gateway
+    Value: !GetAtt GatewaysStack.Outputs.NatGatewayId
+  RouteTablePublicaId:
+    Description: ID da tabela de rotas pública
+    Value: !GetAtt RouteTablePublicaStack.Outputs.RouteTableId
+  RouteTablePrivadaId:
+    Description: ID da tabela de rotas privada
+    Value: !GetAtt RouteTablePrivadaStack.Outputs.RouteTableId
+  SecurityGroupId:
+    Description: ID do Security Group da EC2
+    Value: !GetAtt SecurityStack.Outputs.WebSecurityGroupId
+  InventarioResourceGroup:
+    Description: Resource Group com o inventário do projeto
+    Value: !Ref InventarioResourceGroup

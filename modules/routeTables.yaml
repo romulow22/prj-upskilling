@@ -1,0 +1,76 @@
+#--------------------------------------------------
+# Arquivo routeTables.yaml - Config das tabelas de roteamento
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Tabela de Roteamento da Infra
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID da VPC
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: ID da sub-rede associada à tabela
+
+  TipoGateway:
+    Type: String
+    Default: pub
+    Description: pub = rota via Internet Gateway | priv = rota via NAT Gateway
+    AllowedValues:
+      - pub
+      - priv
+  GatewayId:
+    Type: String
+    Description: ID do Internet Gateway (pub) ou do NAT Gateway (priv)
+
+  CidrDestination:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: Destino da rota padrão
+
+Conditions:
+  GatewayIsPub: !Equals [ !Ref TipoGateway, "pub" ]   #Se o valor é pub
+
+Resources:
+  #=====================================
+  # Tabela de Rotas
+  #=====================================
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+
+    Properties:
+      VpcId: !Ref VpcId
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${TipoGateway}-route-table
+
+  Route:
+    Type: AWS::EC2::Route
+
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: !Ref CidrDestination
+      GatewayId: !If
+        - GatewayIsPub
+        - !Ref GatewayId                  # true
+        - !Ref AWS::NoValue               # false
+      NatGatewayId: !If
+        - GatewayIsPub
+        - !Ref AWS::NoValue                # true
+        - !Ref GatewayId                   # false
+
+
+  SubnetAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetId
+
+Outputs:
+  RouteTableId:
+    Description: ID da RouteTable
+    Value: !Ref RouteTable

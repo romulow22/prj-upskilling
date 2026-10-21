@@ -1,0 +1,55 @@
+#--------------------------------------------------
+# Arquivo subnet.yaml - Config da subnet genérica
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Sub redes da Infra UPSK
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID da VPC
+  SubnetCidr:
+    Type: String
+    Description: Bloco CIDR da sub-rede (ex. 10.0.1.0/24)
+  Public:
+    Type: String
+    Default: false
+    Description: true = atribui IP público automaticamente às instâncias
+    AllowedValues:
+      - true
+      - false
+  AZ:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 5
+    Description: Índice da Availability Zone (0 = primeira AZ da região)
+  SubnetName:
+    Type: String
+    Description: Nome da sub-rede (tag Name e sufixo do export)
+
+Resources:
+  Subnet:
+    Type: AWS::EC2::Subnet
+
+    Properties:
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref SubnetCidr
+      MapPublicIpOnLaunch: !Ref Public
+
+      AvailabilityZone: !Select
+        - !Ref AZ
+        - !GetAZs ""
+
+      Tags:
+        - Key: Name
+          Value: !Ref SubnetName
+
+Outputs:
+  SubnetId:
+    Description: ID da Subrede
+    Value: !Ref Subnet
+    Export:
+      Name: !Sub CodeServer-${SubnetName} # alias de chamada do valor

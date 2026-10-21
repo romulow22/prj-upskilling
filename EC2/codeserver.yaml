@@ -1,0 +1,268 @@
+#--------------------------------------------------
+# Arquivo codeserver.yaml - EC2 com code-server (VS Code no navegador)
+#--------------------------------------------------
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Instância EC2 (Amazon Linux 2023) com o code-server publicado pelo
+  nginx em HTTPS. A senha é gerada e guardada no AWS Secrets Manager,
+  o acesso administrativo pode ser feito pelo SSM Session Manager e o
+  volume EBS é criptografado. Usa os exports da stack de rede
+  (CodeServer-Subnet-Publica e CodeServer-WebSG).
+
+Parameters:
+  EC2Modelo:
+    Type: String
+    Default: t3.medium
+    Description: Tipo (modelo) da instância EC2
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key Pair usado no acesso SSH
+  NomeInstancia:
+    Type: String
+    Default: codeserver
+    Description: Valor da tag Name da instância
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >
+      AMI do Amazon Linux 2023. O deploy.sh obtém a mais recente pelo
+      parâmetro público do SSM
+      /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+      e a mantém fixa nas atualizações (evita substituir a instância).
+  TamanhoDisco:
+    Type: Number
+    Default: 20
+    MinValue: 8
+    MaxValue: 100
+    Description: Tamanho do volume raiz em GiB (gp3 criptografado)
+
+Resources:
+  #=====================================
+  # Secrets Manager - senha do code-server
+  #=====================================
+  CodeServerSecret:
+    Type: AWS::SecretsManager::Secret
+
+    Properties:
+      Description: !Sub Senha de acesso ao code-server (${NomeInstancia})
+      GenerateSecretString:
+        PasswordLength: 20
+        ExcludePunctuation: true
+
+  #=====================================
+  # IAM - Role da instância (sem chaves de acesso estáticas)
+  # SSM Session Manager + leitura somente do segredo acima
+  #=====================================
+  CodeServerRole:
+    Type: AWS::IAM::Role
+
+    Properties:
+      Description: Role da EC2 code-server
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: LerSenhaCodeServer
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref CodeServerSecret
+
+  CodeServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+
+    Properties:
+      Roles:
+        - !Ref CodeServerRole
+
+  #=====================================
+  # EC2 - code-server
+  #=====================================
+  CodeServerInstance:
+    Type: AWS::EC2::Instance
+
+    # Só conclui quando o code-server responder (cfn-signal)
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT20M
+
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref EC2Modelo
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref CodeServerInstanceProfile
+      SubnetId: !ImportValue CodeServer-Subnet-Publica
+      SecurityGroupIds:
+        - !ImportValue CodeServer-WebSG
+
+      # Modo standard: evita cobrança de créditos de CPU excedentes
+      CreditSpecification:
+        CPUCredits: standard
+
+      # IMDSv2 obrigatório
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref TamanhoDisco
+            Encrypted: true
+            DeleteOnTermination: true
+
+      PropagateTagsToVolumeOnCreation: true
+
+      Tags:
+        - Key: Name
+          Value: !Ref NomeInstancia
+        # Seleciona a instância no plano do AWS Backup (extras/backup.yaml)
+        - Key: Backup
+          Value: "true"
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Bootstrap do code-server - Amazon Linux 2023
+          set -euo pipefail
+          export HOME=/root
+
+          sinalizar() {
+            /opt/aws/bin/cfn-signal -e "$1" --stack "${AWS::StackName}" \
+              --resource CodeServerInstance --region "${AWS::Region}" || true
+          }
+          trap 'sinalizar 1' ERR
+
+          # nginx (proxy HTTPS), openssl (certificado) e cfn-bootstrap (sinal)
+          dnf install -y nginx openssl aws-cfn-bootstrap
+
+          # code-server - instalador oficial (pacote RPM)
+          curl -fsSL https://code-server.dev/install.sh | sh
+
+          # Senha lida do Secrets Manager (aguarda a propagação da IAM Role)
+          SENHA=""
+          for tentativa in $(seq 1 30); do
+            SENHA=$(aws secretsmanager get-secret-value \
+              --secret-id "${CodeServerSecret}" --region "${AWS::Region}" \
+              --query SecretString --output text) && break
+            echo "Aguardando acesso ao segredo (tentativa $tentativa)..."
+            sleep 10
+          done
+          test -n "$SENHA"
+
+          mkdir -p /home/ec2-user/.config/code-server
+          cat > /home/ec2-user/.config/code-server/config.yaml <<EOF
+          bind-addr: 127.0.0.1:8080
+          auth: password
+          password: $SENHA
+          cert: false
+          EOF
+          chown -R ec2-user:ec2-user /home/ec2-user/.config
+          chmod 600 /home/ec2-user/.config/code-server/config.yaml
+          systemctl enable --now code-server@ec2-user
+
+          # Certificado TLS autoassinado (1 ano)
+          install -d -m 700 /etc/nginx/ssl
+          openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+            -subj "/CN=${NomeInstancia}" \
+            -keyout /etc/nginx/ssl/codeserver.key \
+            -out /etc/nginx/ssl/codeserver.crt
+
+          # nginx: HTTP -> HTTPS e proxy reverso (com WebSocket) para o code-server
+          cat > /etc/nginx/nginx.conf <<'EOF'
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log;
+          pid /run/nginx.pid;
+
+          events {
+            worker_connections 1024;
+          }
+
+          http {
+            include /etc/nginx/mime.types;
+            default_type application/octet-stream;
+            access_log /var/log/nginx/access.log;
+            sendfile on;
+            server_tokens off;
+
+            map $http_upgrade $connection_upgrade {
+              default upgrade;
+              ''      close;
+            }
+
+            server {
+              listen 80 default_server;
+              server_name _;
+              return 301 https://$host$request_uri;
+            }
+
+            server {
+              listen 443 ssl default_server;
+              server_name _;
+              ssl_certificate     /etc/nginx/ssl/codeserver.crt;
+              ssl_certificate_key /etc/nginx/ssl/codeserver.key;
+              ssl_protocols       TLSv1.2 TLSv1.3;
+
+              location / {
+                proxy_pass http://127.0.0.1:8080/;
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection $connection_upgrade;
+                proxy_set_header Accept-Encoding gzip;
+              }
+            }
+          }
+          EOF
+          nginx -t
+          systemctl enable --now nginx
+
+          # Aguarda o code-server responder e sinaliza sucesso
+          for tentativa in $(seq 1 30); do
+            curl -fsk -o /dev/null https://127.0.0.1/healthz && break
+            sleep 5
+          done
+          curl -fsk -o /dev/null https://127.0.0.1/healthz
+          sinalizar 0
+
+Outputs:
+  InstanceId:
+    Description: ID da instância EC2
+    Value: !Ref CodeServerInstance
+  PublicIp:
+    Description: IP público da instância
+    Value: !GetAtt CodeServerInstance.PublicIp
+  CodeServerURL:
+    Description: URL do code-server (certificado autoassinado)
+    Value: !Sub https://${CodeServerInstance.PublicDnsName}
+  SecretArn:
+    Description: ARN do segredo com a senha do code-server
+    Value: !Ref CodeServerSecret
+  ComandoSenha:
+    Description: Comando para consultar a senha do code-server
+    Value: !Sub aws secretsmanager get-secret-value --secret-id ${CodeServerSecret} --region ${AWS::Region} --query SecretString --output text
+  ComandoSSM:
+    Description: Acesso ao terminal sem SSH (SSM Session Manager)
+    Value: !Sub aws ssm start-session --target ${CodeServerInstance} --region ${AWS::Region}
+  ComandoSSH:
+    Description: Acesso SSH com a chave criada pelo deploy.sh
+    Value: !Sub ssh -i ~/${KeyName}.pem ec2-user@${CodeServerInstance.PublicDnsName}
+  RoleArn:
+    Description: ARN da IAM Role da instância
+    Value: !GetAtt CodeServerRole.Arn

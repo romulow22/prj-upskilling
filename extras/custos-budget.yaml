@@ -1,0 +1,100 @@
+#--------------------------------------------------
+# Arquivo custos-budget.yaml - Orçamento e alertas de custo (AWS Budgets)
+#--------------------------------------------------
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  AWS Budgets com orçamento mensal de custo da conta e alertas por
+  e-mail: 50% e 80% do gasto real e 100% do gasto previsto.
+
+
+#============================================================
+#    PARAMETERS
+#============================================================
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: dev
+    Description: Nome do ambiente
+    AllowedPattern: '^[a-zA-Z0-9-]+$'
+
+  NotificationEmail:
+    Type: String
+    Description: E-mail para receber os alertas de custo
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: Informe um e-mail válido
+
+  ValorMensalUSD:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    Description: Valor do orçamento mensal em USD
+
+
+Resources:
+
+  # ============================================================
+  # Orçamento mensal de custo
+  # ============================================================
+
+  OrcamentoMensal:
+    Type: AWS::Budgets::Budget
+
+    Properties:
+
+      Budget:
+        BudgetName: !Sub '${Environment}-codeserver-orcamento-mensal'
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref ValorMensalUSD
+          Unit: USD
+
+      NotificationsWithSubscribers:
+
+        # Gasto real acima de 50%
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+
+        # Gasto real acima de 80%
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+
+        # Previsão do mês acima de 100%
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref NotificationEmail
+
+
+#============================================================
+#    OUTPUTS
+#============================================================
+
+Outputs:
+
+  BudgetName:
+    Description: Nome do orçamento criado
+    Value: !Ref OrcamentoMensal
+
+  BudgetURL:
+    Description: Console do AWS Budgets
+    Value: https://us-east-1.console.aws.amazon.com/costmanagement/home#/budgets
