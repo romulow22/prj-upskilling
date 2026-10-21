@@ -2,3 +2,5 @@
 *.pem
 *.key
 .env
+.env.*
+!.env.example

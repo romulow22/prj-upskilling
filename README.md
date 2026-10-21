@@ -248,7 +248,7 @@ sequenceDiagram
 
 ### Pré-requisitos
 
-- AWS CLI v2 com credenciais válidas. O [AWS CloudShell](https://console.aws.amazon.com/cloudshell) já atende.
+- AWS CLI v2 com credenciais válidas. Use o [AWS CloudShell](https://console.aws.amazon.com/cloudshell), um profile já configurado ou o arquivo `.env` de um usuário de serviço ([veja abaixo](#execução-de-qualquer-máquina-usuário-de-serviço)).
 - Permissão para criar recursos de CloudFormation, EC2/VPC, IAM, S3, KMS, CloudTrail, CloudWatch/Logs, SNS, Secrets Manager, Systems Manager, AWS Backup, AWS Budgets e Resource Groups.
 - Um e-mail para receber os alertas.
 
@@ -285,6 +285,39 @@ EMAIL=seu.email@exemplo.com ./deploy.sh custos resumo
 | `ORCAMENTO_USD` | `50` | Valor do orçamento mensal |
 | `PROJETO` / `AMBIENTE` / `RESPONSAVEL` | `projeto-upskilling` / `dev` / `c153824` | Tags propagadas para todos os recursos |
 | `ATUALIZAR_AMI` | `nao` | `sim` busca a AMI mais recente. Isso **substitui** a instância |
+| `ENV_FILE` | `.env` na pasta dos scripts | Arquivo de configuração alternativo (credenciais e variáveis acima) |
+
+### Execução de qualquer máquina (usuário de serviço)
+
+Fora do CloudShell, o `deploy.sh` e o `destroy.sh` leem as credenciais e as variáveis do arquivo `.env` que fica na pasta dos scripts. O modelo é o [.env.example](.env.example). O arquivo é lido como texto (`CHAVE=valor`) e não é executado. Variáveis passadas na linha de comando têm prioridade sobre o arquivo.
+
+1. Um administrador cria o usuário de serviço e a access key. Em conta de laboratório, `AdministratorAccess` atende. Em produção, use uma política restrita aos serviços dos pré-requisitos.
+
+   ```bash
+   aws iam create-user --user-name svc-upskilling-deploy --tags Key=Projeto,Value=projeto-upskilling
+   aws iam attach-user-policy --user-name svc-upskilling-deploy \
+     --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+   aws iam create-access-key --user-name svc-upskilling-deploy \
+     --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text
+   ```
+
+2. Crie o `.env` a partir do modelo e preencha `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `EMAIL`:
+
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
+   ```
+
+3. Execute de qualquer diretório. Para guardar o arquivo fora do repositório, use `ENV_FILE`:
+
+   ```bash
+   /caminho/para/prj-upskilling/deploy.sh
+   ENV_FILE=~/upskilling.env /caminho/para/prj-upskilling/deploy.sh ec2
+   ```
+
+4. Para os comandos `aws` manuais deste README, carregue o mesmo arquivo no shell: `set -a; . ./.env; set +a`.
+
+> **Segurança:** o `.env` contém a secret access key e está no [.gitignore](.gitignore) (assim como `.env.*`, exceto o modelo). Nunca o versione. Ao terminar a apresentação, exclua a chave com `aws iam delete-access-key --user-name svc-upskilling-deploy --access-key-id <id>`.
 
 ### Depois do deploy
 
@@ -303,7 +336,7 @@ EMAIL=seu.email@exemplo.com ./deploy.sh custos resumo
 | **Criptografia de dados** | Em repouso: EBS gp3 criptografado; logs do CloudTrail com SSE-KMS (chave própria com rotação automática); segredo e backups criptografados com KMS. Em trânsito: HTTPS com TLS 1.2/1.3 no nginx e bucket de logs que nega requisições sem TLS | `Encrypted: true` em [EC2/codeserver.yaml](EC2/codeserver.yaml). `CloudTrailKMSKey` e `DenyInsecureTransport` em [extras/auditoria-cloudtrail.yaml](extras/auditoria-cloudtrail.yaml) |
 | **Proteção do S3** | Bucket de logs com *Block Public Access* (4 opções), SSE-KMS com Bucket Key, versionamento, política só para o CloudTrail da própria conta (`aws:SourceAccount`), negação de transporte inseguro, ciclo de vida de 365 dias e `DeletionPolicy: Retain`. Bucket de templates privado, com SSE-S3 e versionado | Console S3 → bucket → *Permissions* e *Properties*. `aws s3api get-public-access-block --bucket <bucket>` |
 | **Tags e inventário** | Tags de stack propagadas pelo CloudFormation para todos os recursos: `Projeto`, `Ambiente`, `Responsavel`, `CentroCusto` e `GerenciadoPor`. Tags `Name` por recurso e `Backup=true` na EC2. Resource Group `projeto-upskilling-inventario` lista tudo o que tem `Projeto=projeto-upskilling` | `TAGS` em [deploy.sh](deploy.sh). Console Resource Groups & Tag Editor |
-| **Gestão de segredos** | Senha do code-server gerada pelo Secrets Manager. Ela não aparece no código, nos parâmetros nem nos outputs, e é lida pela instância via IAM Role. A chave privada SSH é gravada com `umask 077`/`chmod 400` só na máquina do operador. O [.gitignore](.gitignore) bloqueia `*.pem`, `*.key` e `.env` | Console Secrets Manager. Output `ComandoSenha`. [.gitignore](.gitignore) |
+| **Gestão de segredos** | Senha do code-server gerada pelo Secrets Manager. Ela não aparece no código, nos parâmetros nem nos outputs, e é lida pela instância via IAM Role. A chave privada SSH é gravada com `umask 077`/`chmod 400` só na máquina do operador. As credenciais do usuário de serviço ficam no `.env` local (`chmod 600`), fora do Git. O [.gitignore](.gitignore) bloqueia `*.pem`, `*.key`, `.env` e `.env.*` | Console Secrets Manager. Output `ComandoSenha`. [.gitignore](.gitignore) |
 | **Proteção da instância** | IMDSv2 obrigatório, AMI Amazon Linux 2023, versão do nginx oculta (`server_tokens off`) e créditos de CPU *standard* | `MetadataOptions` em [EC2/codeserver.yaml](EC2/codeserver.yaml) |
 
 **Regras de rede revisadas (Security Group `Firewall-CodeServer`):**
@@ -464,6 +497,7 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 | Nova AMI substitui a instância | Perda dos dados locais da EC2 | AMI fixada pelo `deploy.sh`. Atualização só com `ATUALIZAR_AMI=sim`, após backup | c153824 |
 | Bucket de logs e chave KMS retidos após o `destroy.sh` | Custo residual baixo (~US$ 1/mês da chave) | Remover manualmente ao fim do período de guarda (seção 7) | c153824 |
 | Conta que já possui um trail | Cópias adicionais de eventos são cobradas (US$ 2 por 100 mil eventos) | Reaproveitar o trail existente ou remover a stack de auditoria após a apresentação | c153824 |
+| Access key de longa duração do usuário de serviço no `.env` | Alto se vazar: acesso amplo à conta | `.env` fora do Git e com `chmod 600`. Excluir a chave após a apresentação. Em produção, usar credenciais temporárias (SSO/assume-role) e política restrita | c153824 |
 
 ---
 
@@ -487,6 +521,7 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 prj-upskilling/
 ├── deploy.sh                         # Implantação por etapas (templates → rede → ec2 → extras)
 ├── destroy.sh                        # Remoção em ordem inversa
+├── .env.example                      # Modelo de credenciais/variáveis (copiar para .env, fora do Git)
 ├── main.yaml                         # Stack principal: nested stacks de rede + Resource Group
 ├── modules/
 │   ├── vpc.yaml                      # VPC 10.0.0.0/16

@@ -9,8 +9,53 @@
 # Mantidos intencionalmente:
 #   - Bucket S3 e chave KMS dos logs do CloudTrail (evidência de auditoria)
 #   - Key Pair e bucket de templates
+#
+# Credenciais e variáveis podem ficar no arquivo .env ao lado do
+# script (modelo: .env.example) ou em ENV_FILE=/caminho/arquivo.
 #==============================================================
 set -euo pipefail
+
+#--------------------------------------------------------------
+# Arquivo de configuração (.env) - mesmo carregador do deploy.sh
+#--------------------------------------------------------------
+carregar_env() {
+  local arquivo="${ENV_FILE:-$(dirname "$0")/.env}"
+  local re_linha='^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$'
+  local re_aspas_duplas='^"([^"]*)"[[:space:]]*(#.*)?$'
+  local re_aspas_simples="^'([^']*)'[[:space:]]*(#.*)?$"
+  local linha chave valor
+
+  if [[ ! -f "${arquivo}" ]]; then
+    if [[ -n "${ENV_FILE:-}" ]]; then
+      echo "ERRO: arquivo de configuração não encontrado: ${arquivo}" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  while IFS= read -r linha || [[ -n "${linha}" ]]; do
+    linha="${linha%$'\r'}"
+    [[ "${linha}" =~ ${re_linha} ]] || continue
+    chave="${BASH_REMATCH[2]}"
+    valor="${BASH_REMATCH[3]}"
+
+    if [[ "${valor}" =~ ${re_aspas_duplas} || "${valor}" =~ ${re_aspas_simples} ]]; then
+      valor="${BASH_REMATCH[1]}"
+    else
+      # Sem aspas: remove comentário no fim da linha e espaços à direita
+      valor="${valor%%[[:space:]]#*}"
+      valor="${valor%"${valor##*[![:space:]]}"}"
+    fi
+
+    if ! printenv "${chave}" >/dev/null; then
+      export "${chave}=${valor}"
+    fi
+  done < "${arquivo}"
+
+  echo "Configuração carregada de: ${arquivo}"
+}
+
+carregar_env
 
 REGION="${REGION:-sa-east-1}"
 BUCKET="${BUCKET:-projeto-upskilling}"
