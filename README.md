@@ -2,9 +2,20 @@
 
 Relatório do projeto final do curso de **Infraestrutura Cloud AWS**, preenchido a partir do modelo [relatorio_infra_aws.docx](relatorio_infra_aws.docx).
 
-| Projeto | Data | Região AWS | Responsável | Repositório |
-|---|---|---|---|---|
-| Infra Code Server — VS Code no navegador na AWS | 20/10/2026 | `sa-east-1` (São Paulo) | c153824 | [github.com/romulow22/prj-upskilling](https://github.com/romulow22/prj-upskilling) |
+| Projeto | Data | Região AWS | Repositório |
+|---|---|---|---|
+| Infra Code Server — VS Code no navegador na AWS | 20/10/2026 | `sa-east-1` (São Paulo) | [github.com/romulow22/prj-upskilling](https://github.com/romulow22/prj-upskilling) |
+
+**Equipe:**
+
+| Matrícula | Nome |
+|---|---|
+| c153824 | Romulo Alves |
+| c161210 | Gustavo Coelho |
+| c160795 | Marcos Andre |
+| c155904 | Rocilda Pacifico |
+
+**Apresentação:** [romulow22.github.io/prj-upskilling](https://romulow22.github.io/prj-upskilling/) — slides em HTML publicados pelo GitHub Pages ([como publicar](#apresentação-em-slides-github-pages)).
 
 **Sumário:**
 [1. Resumo](#1-resumo-do-projeto) ·
@@ -250,6 +261,16 @@ sequenceDiagram
 | 8 | Custos e inventário: Budget, tags e Resource Group | Billing e Resource Groups |
 | 9 | Encerramento: riscos, próximos passos e `./destroy.sh` | Seções 8 e 7 |
 
+### Apresentação em slides (GitHub Pages)
+
+O [index.html](index.html) é uma apresentação curta, com 10 slides que seguem o roteiro acima. É um arquivo único, sem dependências externas, que usa as capturas de [images/](images). Para publicá-la:
+
+1. No GitHub, abra *Settings → Pages*.
+2. Em *Build and deployment*, escolha *Deploy from a branch*, a branch `main` e a pasta `/ (root)`.
+3. Depois do build, a apresentação fica em `https://romulow22.github.io/prj-upskilling/`.
+
+O arquivo [.nojekyll](.nojekyll) faz o Pages publicar os arquivos como estão, sem processá-los com o Jekyll. Na apresentação, use as setas ou deslize para navegar. `F` ativa a tela cheia, e um clique em uma captura a amplia. Cada slide tem endereço próprio (`#1` a `#10`), e *Imprimir → Salvar como PDF* gera uma página por slide.
+
 ---
 
 ## Como implantar
@@ -291,7 +312,7 @@ EMAIL=seu.email@exemplo.com ./deploy.sh custos resumo
 | `EC2_MODELO` | `t3.medium` | `t3.micro`, `t3.small`, `t3.medium` ou `t3.large` |
 | `NOME_INSTANCIA` | `codeserver2` | Tag `Name` da EC2 |
 | `ORCAMENTO_USD` | `50` | Valor do orçamento mensal |
-| `PROJETO` / `AMBIENTE` / `RESPONSAVEL` | `projeto-upskilling` / `dev` / `c153824` | Tags propagadas para todos os recursos |
+| `PROJETO` / `AMBIENTE` / `RESPONSAVEL` | `projeto-upskilling` / `dev` / `c153824` | Tags propagadas para todos os recursos. `RESPONSAVEL` aceita um único valor: use a matrícula de quem executa o deploy |
 | `ATUALIZAR_AMI` | `nao` | `sim` busca a AMI mais recente. Isso **substitui** a instância |
 | `ENV_FILE` | `.env` na pasta dos scripts | Arquivo de configuração alternativo (credenciais e variáveis acima) |
 
@@ -460,7 +481,7 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 
 | Data | Ponto de recuperação | Tempo de restauração | Resultado | Responsável |
 |---|---|---|---|---|
-| ___/___/____ | `ami-…` | ___ min | ☐ Sucesso ☐ Falha | c153824 |
+| ___/___/____ | `ami-…` | ___ min | ☐ Sucesso ☐ Falha | __________ |
 
 ---
 
@@ -511,18 +532,18 @@ aws backup list-backup-jobs --by-backup-vault-name dev-codeserver-vault \
 
 | Pendência / risco | Impacto | Ação ou mitigação | Responsável |
 |---|---|---|---|
-| Certificado TLS autoassinado (aviso no navegador) | Médio: usuário precisa aceitar o aviso, e alguns recursos do VS Code web ficam limitados | Domínio próprio com ACM + ALB/CloudFront, ou Let's Encrypt | c153824 |
-| code-server exposto à internet na porta 443, protegido apenas por senha | Alto: o terminal do VS Code dá acesso total à instância | Restringir a 443 a IPs conhecidos, adicionar ALB + WAF/Cognito ou usar *port forwarding* via SSM | c153824 |
-| Ambiente em uma única AZ (EC2 e NAT) | Médio: indisponibilidade se a AZ falhar | Aceito para laboratório. Em produção: Auto Scaling multi-AZ e um NAT por AZ | c153824 |
-| NAT Gateway sem workload na sub-rede privada | Custo fixo de ~US$ 68/mês | Remover o NAT se a sub-rede privada não for usada, ou destruir o ambiente após a apresentação | c153824 |
-| Senha do code-server sem rotação automática | Médio | Rotacionar manualmente ou implementar rotação (Lambda + atualização do `config.yaml`) | c153824 |
-| Teste de restauração ainda não registrado | Médio: backup sem validação comprovada | Executar o procedimento da seção 6 e anexar a evidência | c153824 |
-| Templates `main.yaml` e `EC2/codeserver.yaml` reconstruídos (os originais foram sobrescritos) | Atualizar stacks antigas pode falhar ou substituir a EC2 | Executar `./destroy.sh` antes do primeiro deploy desta versão | c153824 |
-| Nova AMI substitui a instância | Perda dos dados locais da EC2 | AMI fixada pelo `deploy.sh`. Atualização só com `ATUALIZAR_AMI=sim`, após backup | c153824 |
-| Bucket de logs e chave KMS retidos após o `destroy.sh` | Custo residual baixo (~US$ 1/mês da chave) | Remover manualmente ao fim do período de guarda (seção 7) | c153824 |
-| Conta que já possui um trail | Cópias adicionais de eventos são cobradas (US$ 2 por 100 mil eventos) | Reaproveitar o trail existente ou remover a stack de auditoria após a apresentação | c153824 |
-| Access key de longa duração do usuário de serviço no `.env` | Alto se vazar: acesso amplo à conta | `.env` fora do Git e com `chmod 600`. Excluir a chave após a apresentação. Em produção, usar credenciais temporárias (SSO/assume-role) e política restrita | c153824 |
-| Uso da conta root detectado (alarme `dev-seguranca-uso-conta-root` em ALARM no dashboard) | Alto: a root não tem restrição de permissões | Usar usuário IAM ou o usuário de serviço no console e no deploy, ativar MFA na root e reservá-la às tarefas que a exigem | c153824 |
+| Certificado TLS autoassinado (aviso no navegador) | Médio: usuário precisa aceitar o aviso, e alguns recursos do VS Code web ficam limitados | Domínio próprio com ACM + ALB/CloudFront, ou Let's Encrypt | Equipe |
+| code-server exposto à internet na porta 443, protegido apenas por senha | Alto: o terminal do VS Code dá acesso total à instância | Restringir a 443 a IPs conhecidos, adicionar ALB + WAF/Cognito ou usar *port forwarding* via SSM | Equipe |
+| Ambiente em uma única AZ (EC2 e NAT) | Médio: indisponibilidade se a AZ falhar | Aceito para laboratório. Em produção: Auto Scaling multi-AZ e um NAT por AZ | Equipe |
+| NAT Gateway sem workload na sub-rede privada | Custo fixo de ~US$ 68/mês | Remover o NAT se a sub-rede privada não for usada, ou destruir o ambiente após a apresentação | Equipe |
+| Senha do code-server sem rotação automática | Médio | Rotacionar manualmente ou implementar rotação (Lambda + atualização do `config.yaml`) | Equipe |
+| Teste de restauração ainda não registrado | Médio: backup sem validação comprovada | Executar o procedimento da seção 6 e anexar a evidência | Equipe |
+| Templates `main.yaml` e `EC2/codeserver.yaml` reconstruídos (os originais foram sobrescritos) | Atualizar stacks antigas pode falhar ou substituir a EC2 | Executar `./destroy.sh` antes do primeiro deploy desta versão | Equipe |
+| Nova AMI substitui a instância | Perda dos dados locais da EC2 | AMI fixada pelo `deploy.sh`. Atualização só com `ATUALIZAR_AMI=sim`, após backup | Equipe |
+| Bucket de logs e chave KMS retidos após o `destroy.sh` | Custo residual baixo (~US$ 1/mês da chave) | Remover manualmente ao fim do período de guarda (seção 7) | Equipe |
+| Conta que já possui um trail | Cópias adicionais de eventos são cobradas (US$ 2 por 100 mil eventos) | Reaproveitar o trail existente ou remover a stack de auditoria após a apresentação | Equipe |
+| Access key de longa duração do usuário de serviço no `.env` | Alto se vazar: acesso amplo à conta | `.env` fora do Git e com `chmod 600`. Excluir a chave após a apresentação. Em produção, usar credenciais temporárias (SSO/assume-role) e política restrita | Equipe |
+| Uso da conta root detectado (alarme `dev-seguranca-uso-conta-root` em ALARM no dashboard) | Alto: a root não tem restrição de permissões | Usar usuário IAM ou o usuário de serviço no console e no deploy, ativar MFA na root e reservá-la às tarefas que a exigem | Equipe |
 
 ---
 
@@ -563,6 +584,8 @@ prj-upskilling/
 │   ├── backup.yaml                   # AWS Backup (vault, plano e seleção)
 │   └── custos-budget.yaml            # AWS Budgets
 ├── images/                           # Capturas do ambiente em execução (evidências)
+├── index.html                        # Apresentação em slides (GitHub Pages)
+├── .nojekyll                         # Publica o site sem processamento do Jekyll
 ├── relatorio_infra_aws.docx          # Modelo original do relatório
 └── README.md                         # Este relatório
 ```

@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infra Code Server · VS Code no navegador na AWS</title>
+<meta name="description" content="Apresentação do projeto Infra Code Server: code-server em EC2 na AWS (sa-east-1), criado com CloudFormation, com segurança, auditoria, monitoramento, backup e controle de custos.">
+<meta name="theme-color" content="#0f1b2d">
+<meta name="author" content="Romulo Alves, Gustavo Coelho, Marcos Andre, Rocilda Pacifico">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Infra Code Server · VS Code no navegador na AWS">
+<meta property="og:description" content="Projeto final de Infraestrutura Cloud AWS: code-server em EC2 com IaC, segurança, auditoria, backup e custos.">
+<meta property="og:image" content="https://romulow22.github.io/prj-upskilling/images/vscodeserver_running.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff9900'/%3E%3Ctext x='32' y='43' font-family='monospace' font-size='28' font-weight='700' text-anchor='middle' fill='%230f1b2d'%3E%26lt;/%26gt;%3C/text%3E%3C/svg%3E">
+<script>document.documentElement.className = 'js';</script>
+<style>
+  :root {
+    --bg: #0f1b2d;
+    --bg-2: #13233a;
+    --surface: #182b45;
+    --borda: #2b4466;
+    --texto: #e8eef7;
+    --suave: #a3b4cc;
+    --laranja: #ff9900;
+    --azul: #5cc8ff;
+    --verde: #3ecf8e;
+    --vermelho: #ff6b6b;
+    --amarelo: #ffd166;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--texto); font-family: var(--sans); }
+  a { color: var(--azul); }
+  code { font-family: var(--mono); font-size: .9em; background: rgba(92, 200, 255, .1); color: #cfeeff; padding: .08em .35em; border-radius: 4px; }
+
+  /* Sem JS: slides empilhados e rolagem normal */
+  .slide { position: relative; width: 1280px; height: 720px; margin: 0 auto 24px; padding: 52px 72px 64px; overflow: hidden;
+           background: radial-gradient(1200px 600px at 100% 0%, rgba(92, 200, 255, .08), transparent 60%),
+                       radial-gradient(900px 500px at 0% 100%, rgba(255, 153, 0, .07), transparent 60%), var(--bg); }
+
+  /* Com JS: palco 1280x720 escalado para caber na janela */
+  .js, .js body { height: 100%; overflow: hidden; }
+  .js .deck { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px;
+              transform: translate(-50%, -50%) scale(var(--escala, 1)); transform-origin: center; }
+  .js .slide { position: absolute; inset: 0; margin: 0; opacity: 0; visibility: hidden;
+               transform: translateX(24px); transition: opacity .35s ease, transform .35s ease, visibility .35s; }
+  .js .slide.ativo { opacity: 1; visibility: visible; transform: none; }
+  .js .slide.antes { transform: translateX(-24px); }
+
+  /* Tipografia dos slides */
+  .kicker { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--laranja); }
+  h2 { margin: 0 0 22px; font-size: 38px; line-height: 1.15; letter-spacing: -.01em; }
+  h3 { margin: 0 0 8px; font-size: 19px; }
+  p, li { font-size: 19px; line-height: 1.5; }
+  ul { margin: 0; padding-left: 22px; }
+  li + li { margin-top: 8px; }
+  li::marker { color: var(--laranja); }
+  .suave { color: var(--suave); }
+  .destaque { color: var(--laranja); font-weight: 700; }
+
+  .colunas { display: grid; gap: 36px; align-items: start; }
+
+  /* Capturas de tela (clicáveis para ampliar) */
+  figure { margin: 0; }
+  .zoom { display: block; width: 100%; padding: 0; border: 1px solid var(--borda); border-radius: 10px; overflow: hidden;
+          background: #000; cursor: zoom-in; box-shadow: 0 14px 40px rgba(0, 0, 0, .45); transition: border-color .2s, transform .2s; }
+  .zoom:hover, .zoom:focus-visible { border-color: var(--laranja); transform: translateY(-2px); }
+  .zoom img { display: block; width: 100%; height: auto; }
+  figcaption { margin-top: 8px; font-size: 14px; color: var(--suave); }
+
+  /* Cartões */
+  .card { background: var(--surface); border: 1px solid var(--borda); border-radius: 12px; padding: 18px 20px; }
+  .card p, .card li { font-size: 16px; line-height: 1.45; margin: 0; }
+  .card .icone { font-size: 24px; line-height: 1; margin-bottom: 8px; display: block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; font-size: 15px;
+          background: var(--surface); border: 1px solid var(--borda); color: var(--texto); }
+
+  /* Capa */
+  .capa { display: grid; grid-template-columns: 1fr 380px; gap: 48px; align-items: center; align-content: center; }
+  .capa h1 { margin: 0 0 18px; font-size: 68px; line-height: 1.02; letter-spacing: -.02em; }
+  .capa h1 span { color: var(--laranja); }
+  .capa .lead { font-size: 23px; line-height: 1.45; color: var(--suave); margin: 0 0 30px; }
+  .equipe { margin-top: 30px; }
+  .equipe .kicker { font-size: 13px; margin-bottom: 10px; }
+  .equipe ul { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(2, max-content); gap: 8px 40px; }
+  .equipe li { margin: 0; font-size: 18px; }
+  .equipe li span { margin-left: 6px; font-family: var(--mono); font-size: 14px; color: var(--suave); }
+  .fim .equipe-fim { margin: 26px 0 0; font-size: 18px; color: var(--suave); }
+  .fim .equipe-fim b { color: var(--texto); font-weight: 600; }
+  .capa .dica { position: absolute; left: 72px; bottom: 64px; font-size: 15px; color: var(--suave); }
+  .tecla { display: inline-block; min-width: 26px; padding: 1px 7px; border: 1px solid var(--borda); border-bottom-width: 3px;
+           border-radius: 6px; font-family: var(--mono); font-size: 13px; text-align: center; color: var(--texto); }
+  .terminal { border-radius: 12px; overflow: hidden;
+              border: 1px solid var(--borda); background: #0a1322; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+  .terminal .barra { display: flex; gap: 7px; padding: 10px 12px; background: #13233a; }
+  .terminal .barra i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+  .terminal .barra i:nth-child(2) { background: #febc2e; }
+  .terminal .barra i:nth-child(3) { background: #28c840; }
+  .terminal pre { margin: 0; padding: 16px 18px 18px; font: 14px/1.7 var(--mono); color: #cfe3ff; white-space: pre-wrap; }
+  .terminal .ok { color: var(--verde); }
+  .terminal .prompt { color: var(--laranja); }
+
+  /* Pipeline do deploy */
+  .pipeline { display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px; margin-bottom: 26px; counter-reset: etapa; }
+  .etapa { position: relative; padding: 10px 6px 9px; border-radius: 10px; text-align: center; background: var(--surface);
+           border: 1px solid var(--borda); font-family: var(--mono); font-size: 13.5px; }
+  .etapa::before { counter-increment: etapa; content: counter(etapa); display: block; margin-bottom: 3px;
+                   font-family: var(--sans); font-size: 12px; font-weight: 700; color: var(--laranja); }
+  .etapa.extra { border-style: dashed; }
+  .comando { margin: 18px 0 0; padding: 12px 16px; border-radius: 10px; background: #0a1322; border: 1px solid var(--borda);
+             font: 15px/1.6 var(--mono); color: #cfe3ff; }
+  .comando .c { color: var(--suave); }
+
+  /* Grade de controles de segurança */
+  .grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .grade .card h3 { font-size: 18px; }
+
+  /* Números */
+  .numeros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .numero { padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--borda); }
+  .numero b { display: block; font-size: 28px; color: var(--laranja); line-height: 1.1; }
+  .numero span { font-size: 14px; color: var(--suave); }
+
+  /* Custos */
+  .total { font-size: 64px; font-weight: 800; letter-spacing: -.02em; line-height: 1; margin: 0; }
+  .total small { font-size: 22px; font-weight: 500; color: var(--suave); }
+  .barras { list-style: none; padding: 0; margin: 22px 0 0; }
+  .barras li { display: grid; grid-template-columns: 170px 1fr 70px; align-items: center; gap: 12px; font-size: 15px; margin: 0 0 9px; }
+  .barras .trilho { height: 14px; border-radius: 7px; background: rgba(255, 255, 255, .06); overflow: hidden; }
+  .barras .valor { display: block; height: 100%; width: var(--v); min-width: 4px; border-radius: 7px;
+                   background: linear-gradient(90deg, var(--laranja), #ffb84d); }
+  .barras .num { text-align: right; font-family: var(--mono); font-size: 14px; color: var(--suave); }
+
+  /* Riscos */
+  .risco { display: grid; grid-template-rows: auto 1fr; gap: 6px; }
+  .risco .nivel { justify-self: start; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+                  padding: 3px 9px; border-radius: 999px; }
+  .alto { background: rgba(255, 107, 107, .15); color: var(--vermelho); }
+  .medio { background: rgba(255, 209, 102, .15); color: var(--amarelo); }
+  .baixo { background: rgba(62, 207, 142, .15); color: var(--verde); }
+  .risco h3 { font-size: 17px; margin: 4px 0 2px; }
+  .risco p { font-size: 15px; color: var(--suave); }
+  .risco p b { color: var(--texto); font-weight: 600; }
+
+  /* Aviso */
+  .aviso { margin-top: 18px; padding: 12px 16px; border-left: 4px solid var(--vermelho); border-radius: 6px;
+           background: rgba(255, 107, 107, .08); font-size: 16px; line-height: 1.45; }
+
+  /* Diagrama */
+  .diagrama { width: 100%; height: auto; display: block; }
+  .diagrama text { font-family: var(--sans); fill: var(--texto); }
+  .diagrama .t { font-size: 13.5px; font-weight: 700; }
+  .diagrama .s { font-size: 11.5px; fill: var(--suave); }
+  .diagrama .g { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .diagrama .box { fill: var(--surface); stroke: var(--borda); stroke-width: 1.2; }
+  .diagrama .ec2 { stroke: var(--laranja); stroke-width: 1.8; }
+  .diagrama .ator { fill: #22385a; stroke: var(--azul); stroke-width: 1.4; }
+  .diagrama .aws { fill: rgba(255, 153, 0, .03); stroke: var(--laranja); stroke-width: 1.4; }
+  .diagrama .vpc { fill: rgba(92, 200, 255, .04); stroke: var(--azul); stroke-width: 1.2; }
+  .diagrama .pub { fill: rgba(62, 207, 142, .05); stroke: var(--verde); stroke-width: 1.1; }
+  .diagrama .priv { fill: rgba(92, 200, 255, .06); stroke: #6f8fbf; stroke-width: 1.1; }
+  .diagrama .sg { fill: none; stroke: var(--vermelho); stroke-width: 1.3; stroke-dasharray: 6 4; }
+  .diagrama .gov { fill: rgba(255, 255, 255, .02); stroke: #8a7cff; stroke-width: 1.2; }
+  .diagrama .seta { fill: none; stroke: #9fb4d3; stroke-width: 1.7; }
+  .diagrama .tracejada { stroke-dasharray: 5 4; }
+  .diagrama .rotulo { font-size: 11.5px; fill: #d7e4f5; paint-order: stroke; stroke: var(--bg); stroke-width: 5px; stroke-linejoin: round; }
+
+  /* Encerramento */
+  .fim { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  .fim h2 { font-size: 64px; margin-bottom: 12px; }
+  .fim .lead { font-size: 24px; color: var(--suave); margin: 0 0 34px; }
+  .links { display: flex; gap: 16px; justify-content: center; margin-top: 30px; }
+  .botao { display: inline-flex; align-items: center; gap: 10px; padding: 13px 22px; border-radius: 10px; font-size: 18px;
+           font-weight: 600; text-decoration: none; color: var(--bg); background: var(--laranja); }
+  .botao.secundario { background: transparent; color: var(--texto); border: 1px solid var(--borda); }
+  .botao:hover, .botao:focus-visible { filter: brightness(1.1); }
+
+  /* Rodapé, navegação e progresso */
+  .rodape { display: none; }
+  .js .rodape { display: flex; position: absolute; left: 72px; right: 40px; bottom: 16px; align-items: center;
+                justify-content: space-between; font-size: 14px; color: var(--suave); z-index: 5; }
+  .nav { display: flex; align-items: center; gap: 10px; }
+  .nav button { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--borda); background: var(--surface);
+                color: var(--texto); font-size: 18px; cursor: pointer; }
+  .nav button:hover:not(:disabled), .nav button:focus-visible { border-color: var(--laranja); }
+  .nav button:disabled { opacity: .35; cursor: default; }
+  #contador { min-width: 56px; text-align: center; font-family: var(--mono); }
+  .progresso { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--laranja); transition: width .35s ease; z-index: 5; }
+  :focus-visible { outline: 3px solid var(--azul); outline-offset: 2px; }
+
+  /* Captura ampliada */
+  dialog#ampliada { padding: 0; border: 0; background: transparent; max-width: 96vw; max-height: 94vh; }
+  dialog#ampliada::backdrop { background: rgba(5, 10, 20, .88); }
+  dialog#ampliada img { display: block; max-width: 96vw; max-height: 88vh; border-radius: 8px; cursor: zoom-out; }
+  dialog#ampliada p { margin: 10px 0 0; text-align: center; font-size: 15px; color: var(--suave); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .js .slide, .js .slide.antes, .progresso, .zoom { transition: none; transform: none; }
+  }
+
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    html, body, .js, .js body { height: auto; overflow: visible; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .js .deck { position: static; transform: none; width: auto; height: auto; }
+    .js .slide, .slide { position: relative; opacity: 1; visibility: visible; transform: none; margin: 0; break-after: page; }
+    .js .rodape, .progresso, dialog { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<main class="deck" id="deck" aria-label="Apresentação Infra Code Server">
+
+  <!-- 1. Capa -->
+  <section class="slide capa" data-titulo="Infra Code Server">
+    <div>
+      <p class="kicker">Projeto final · Infraestrutura Cloud AWS</p>
+      <h1>Infra <span>Code Server</span></h1>
+      <p class="lead">VS Code no navegador, rodando em uma EC2 na AWS e criado 100% como código, com segurança, auditoria, monitoramento, backup e controle de custos.</p>
+      <div class="chips">
+        <span class="chip">📍 sa-east-1 · São Paulo</span>
+        <span class="chip">🧱 AWS CloudFormation</span>
+        <span class="chip">⚙️ Bash + AWS CLI</span>
+        <span class="chip">📅 Outubro de 2026</span>
+      </div>
+      <div class="equipe">
+        <p class="kicker">Equipe</p>
+        <ul>
+          <li><b>Romulo Alves</b> <span>c153824</span></li>
+          <li><b>Gustavo Coelho</b> <span>c161210</span></li>
+          <li><b>Marcos Andre</b> <span>c160795</span></li>
+          <li><b>Rocilda Pacifico</b> <span>c155904</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="terminal" aria-hidden="true">
+      <div class="barra"><i></i><i></i><i></i></div>
+<pre><span class="prompt">$</span> ./deploy.sh
+<span class="ok">✔</span> templates   <span class="ok">✔</span> rede
+<span class="ok">✔</span> ec2         <span class="ok">✔</span> auditoria
+<span class="ok">✔</span> monitoramento
+<span class="ok">✔</span> dashboard   <span class="ok">✔</span> backup
+<span class="ok">✔</span> custos      <span class="ok">✔</span> resumo
+code-server : https://ec2-…sa-east-1…</pre>
+    </div>
+    <p class="dica">Navegue com <span class="tecla">←</span> <span class="tecla">→</span> ou deslizando · <span class="tecla">F</span> tela cheia · clique nas capturas para ampliar</p>
+  </section>
+
+  <!-- 2. Objetivo e solução -->
+  <section class="slide" data-titulo="Objetivo e solução">
+    <p class="kicker">01 · Objetivo e solução</p>
+    <h2>Um ambiente de desenvolvimento na nuvem, criado e removido por código</h2>
+    <div class="colunas" style="grid-template-columns: 470px 1fr;">
+      <ul>
+        <li><b>code-server</b> (VS Code web) em uma EC2 Amazon Linux 2023, atrás do <b>nginx com HTTPS</b>.</li>
+        <li>Senha gerada e guardada no <b>Secrets Manager</b>; acesso administrativo pelo <b>SSM</b>, sem depender de SSH.</li>
+        <li>Três camadas:
+          <span class="chips" style="margin-top:8px;">
+            <span class="chip">🌐 Rede</span><span class="chip">💻 Computação</span><span class="chip">🛡️ Governança</span>
+          </span>
+        </li>
+        <li>Um único script, <code>deploy.sh</code>, cria tudo; o <code>destroy.sh</code> remove.</li>
+      </ul>
+      <figure>
+        <button class="zoom" type="button" aria-label="Ampliar captura: code-server em execução no navegador">
+          <img src="images/vscodeserver_running.png" alt="code-server aberto no navegador com o repositório prj-upskilling clonado no terminal integrado" width="1870" height="884" loading="lazy">
+        </button>
+        <figcaption>code-server em execução na EC2 de São Paulo, com o repositório clonado no terminal.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 3. Arquitetura -->
+  <section class="slide" data-titulo="Arquitetura">
+    <p class="kicker">02 · Arquitetura</p>
+    <h2 style="margin-bottom:14px;">Rede isolada, acesso HTTPS e governança</h2>
+    <svg class="diagrama" viewBox="0 0 1180 520" role="img" aria-labelledby="arq-titulo arq-desc">
+      <title id="arq-titulo">Diagrama da arquitetura</title>
+      <desc id="arq-desc">O usuário acessa por HTTPS 443 o Internet Gateway, que leva ao Security Group e à EC2 com nginx e code-server na sub-rede pública. O administrador usa SSH restrito ao seu IP ou o Session Manager. A EC2 usa uma IAM Role para ler a senha no Secrets Manager. A sub-rede privada sai pela internet via NAT Gateway. Na governança, o CloudTrail grava no S3 com KMS e no CloudWatch Logs, cujos filtros alimentam os alarmes do CloudWatch, que notificam pelo SNS. AWS Backup, AWS Budgets e Resource Group completam a governança.</desc>
+      <defs>
+        <marker id="ponta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#9fb4d3"/>
+        </marker>
+      </defs>
+
+      <!-- Atores -->
+      <rect class="ator" x="0" y="92" width="140" height="56" rx="28"/>
+      <text class="t" x="70" y="116" text-anchor="middle">Usuário</text>
+      <text class="s" x="70" y="134" text-anchor="middle">navegador</text>
+      <rect class="ator" x="0" y="362" width="140" height="56" rx="28"/>
+      <text class="t" x="70" y="386" text-anchor="middle">Administrador</text>
+      <text class="s" x="70" y="404" text-anchor="middle">operação</text>
+
+      <!-- AWS -->
+      <rect class="aws" x="172" y="4" width="1004" height="512" rx="14"/>
+      <text class="g" x="190" y="27" style="fill:#ff9900">AWS Cloud · sa-east-1 (São Paulo)</text>
+
+      <!-- VPC -->
+      <rect class="vpc" x="196" y="40" width="574" height="334" rx="12"/>
+      <text class="g" x="212" y="62" style="fill:#5cc8ff">VPC · 10.0.0.0/16</text>
+
+      <rect class="box" x="212" y="158" width="104" height="60" rx="8"/>
+      <text class="t" x="264" y="184" text-anchor="middle">Internet</text>
+      <text class="t" x="264" y="201" text-anchor="middle">Gateway</text>
+
+      <rect class="pub" x="336" y="78" width="420" height="178" rx="10"/>
+      <text class="s" x="350" y="98" style="fill:#3ecf8e;font-weight:700">Sub-rede pública · 10.0.1.0/24</text>
+
+      <rect class="sg" x="350" y="110" width="238" height="134" rx="8"/>
+      <text class="s" x="362" y="128" style="fill:#ff8f8f;font-weight:700">SG · 22 (/32) · 80 · 443</text>
+      <rect class="box ec2" x="362" y="138" width="214" height="96" rx="8"/>
+      <text class="t" x="469" y="160" text-anchor="middle">EC2 codeserver2</text>
+      <text class="s" x="469" y="181" text-anchor="middle">nginx :443 → code-server :8080</text>
+      <text class="s" x="469" y="199" text-anchor="middle">EBS gp3 criptografado · IMDSv2</text>
+      <text class="s" x="469" y="217" text-anchor="middle">t3.medium · Amazon Linux 2023</text>
+
+      <rect class="box" x="606" y="140" width="136" height="64" rx="8"/>
+      <text class="t" x="674" y="167" text-anchor="middle">NAT Gateway</text>
+      <text class="s" x="674" y="186" text-anchor="middle">+ Elastic IP</text>
+
+      <rect class="priv" x="528" y="270" width="228" height="94" rx="10"/>
+      <rect class="box" x="556" y="280" width="184" height="52" rx="8"/>
+      <text class="t" x="648" y="302" text-anchor="middle">Workloads internos</text>
+      <text class="s" x="648" y="320" text-anchor="middle">sem IP público</text>
+      <text class="s" x="540" y="353" style="fill:#9fc2ef;font-weight:700">Sub-rede privada · 10.0.2.0/24</text>
+
+      <!-- Serviços de apoio -->
+      <rect class="box" x="226" y="400" width="170" height="58" rx="8"/>
+      <text class="t" x="311" y="424" text-anchor="middle">Secrets Manager</text>
+      <text class="s" x="311" y="442" text-anchor="middle">senha do code-server</text>
+      <rect class="box" x="420" y="400" width="170" height="58" rx="8"/>
+      <text class="t" x="505" y="424" text-anchor="middle">Systems Manager</text>
+      <text class="s" x="505" y="442" text-anchor="middle">Session Manager</text>
+
+      <!-- Governança -->
+      <rect class="gov" x="790" y="40" width="370" height="460" rx="12"/>
+      <text class="g" x="806" y="62" style="fill:#b3a8ff">Governança</text>
+
+      <rect class="box" x="806" y="80" width="160" height="58" rx="8"/>
+      <text class="t" x="886" y="104" text-anchor="middle">CloudTrail</text>
+      <text class="s" x="886" y="122" text-anchor="middle">multirregião</text>
+      <rect class="box" x="986" y="80" width="158" height="58" rx="8"/>
+      <text class="t" x="1065" y="104" text-anchor="middle">S3 de logs</text>
+      <text class="s" x="1065" y="122" text-anchor="middle">SSE-KMS · versionado</text>
+      <rect class="box" x="986" y="160" width="158" height="50" rx="8"/>
+      <text class="t" x="1065" y="181" text-anchor="middle">KMS</text>
+      <text class="s" x="1065" y="198" text-anchor="middle">rotação automática</text>
+      <rect class="box" x="806" y="168" width="160" height="58" rx="8"/>
+      <text class="t" x="886" y="192" text-anchor="middle">CloudWatch Logs</text>
+      <text class="s" x="886" y="210" text-anchor="middle">4 filtros de métrica</text>
+      <rect class="box" x="806" y="256" width="160" height="58" rx="8"/>
+      <text class="t" x="886" y="280" text-anchor="middle">CloudWatch</text>
+      <text class="s" x="886" y="298" text-anchor="middle">6 alarmes + dashboard</text>
+      <rect class="box" x="986" y="256" width="158" height="58" rx="8"/>
+      <text class="t" x="1065" y="280" text-anchor="middle">SNS</text>
+      <text class="s" x="1065" y="298" text-anchor="middle">alertas por e-mail</text>
+      <rect class="box" x="806" y="344" width="160" height="58" rx="8"/>
+      <text class="t" x="886" y="368" text-anchor="middle">AWS Backup</text>
+      <text class="s" x="886" y="386" text-anchor="middle">imagem diária da EC2</text>
+      <rect class="box" x="986" y="344" width="158" height="58" rx="8"/>
+      <text class="t" x="1065" y="368" text-anchor="middle">AWS Budgets</text>
+      <text class="s" x="1065" y="386" text-anchor="middle">US$ 50/mês · 3 alertas</text>
+      <rect class="box" x="806" y="430" width="338" height="52" rx="8"/>
+      <text class="t" x="975" y="452" text-anchor="middle">Resource Group</text>
+      <text class="s" x="975" y="470" text-anchor="middle">inventário pela tag Projeto</text>
+
+      <!-- Conexões -->
+      <path class="seta" d="M140,120 C180,120 176,188 210,188" marker-end="url(#ponta)"/>
+      <text class="rotulo" x="146" y="106">HTTPS 443</text>
+      <path class="seta" d="M140,380 C210,380 264,300 264,221" marker-end="url(#ponta)"/>
+      <text class="rotulo" x="272" y="290">SSH 22 (/32)</text>
+      <path class="seta tracejada" d="M140,400 C190,500 390,500 418,440" marker-end="url(#ponta)"/>
+      <text class="rotulo" x="290" y="494" text-anchor="middle">SSM, sem SSH</text>
+      <path class="seta" d="M316,188 H360" marker-end="url(#ponta)"/>
+      <path class="seta" d="M400,236 L332,398" marker-end="url(#ponta)"/>
+      <text class="rotulo" x="350" y="330" text-anchor="end">IAM Role</text>
+      <path class="seta tracejada" d="M505,400 V237" marker-end="url(#ponta)"/>
+      <path class="seta" d="M700,280 L690,207" marker-end="url(#ponta)"/>
+      <text class="rotulo" x="684" y="248" text-anchor="end">saída</text>
+      <path class="seta" d="M966,109 H984" marker-end="url(#ponta)"/>
+      <path class="seta tracejada" d="M1065,160 V141" marker-end="url(#ponta)"/>
+      <path class="seta" d="M886,138 V166" marker-end="url(#ponta)"/>
+      <path class="seta" d="M886,226 V254" marker-end="url(#ponta)"/>
+      <path class="seta" d="M966,285 H984" marker-end="url(#ponta)"/>
+    </svg>
+  </section>
+
+  <!-- 4. Implantação como código -->
+  <section class="slide" data-titulo="Infraestrutura como código">
+    <p class="kicker">03 · Infraestrutura como código</p>
+    <h2>Um comando, 9 etapas, 14 stacks do CloudFormation</h2>
+    <div class="pipeline" aria-label="Etapas do deploy.sh">
+      <div class="etapa extra">templates</div>
+      <div class="etapa">rede</div>
+      <div class="etapa">ec2</div>
+      <div class="etapa">auditoria</div>
+      <div class="etapa" style="font-size:12px;">monitoramento</div>
+      <div class="etapa">dashboard</div>
+      <div class="etapa">backup</div>
+      <div class="etapa">custos</div>
+      <div class="etapa extra">resumo</div>
+    </div>
+    <div class="colunas" style="grid-template-columns: 440px 1fr; gap: 30px;">
+      <div>
+        <ul>
+          <li>7 stacks raiz + <b>7 nested stacks</b> de rede, a partir de módulos reutilizáveis.</li>
+          <li><b>Idempotente</b>: reexecutar aplica só o que mudou.</li>
+          <li>Etapas independentes, úteis para demonstração.</li>
+          <li>Credenciais de um usuário de serviço via <code>.env</code>, fora do Git.</li>
+        </ul>
+        <p class="comando"><span class="c"># tudo de uma vez</span><br>EMAIL=voce@exemplo.com ./deploy.sh<br><span class="c"># ou por etapa</span><br>./deploy.sh rede ec2</p>
+      </div>
+      <figure>
+        <button class="zoom" type="button" aria-label="Ampliar captura: stacks do CloudFormation">
+          <img src="images/cloudformation_stack_execution.png" alt="Console do CloudFormation em São Paulo com 14 stacks em CREATE_COMPLETE" width="1910" height="786" loading="lazy">
+        </button>
+        <figcaption>14 stacks em <code>CREATE_COMPLETE</code> na região de São Paulo.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 5. Segurança -->
+  <section class="slide" data-titulo="Segurança">
+    <p class="kicker">04 · Segurança e governança</p>
+    <h2>Controles aplicados desde a primeira linha de código</h2>
+    <div class="grade">
+      <div class="card"><span class="icone">🌐</span><h3>Rede segmentada</h3>
+        <p>VPC própria; sub-rede privada sem entrada. O SG libera só 22 (IP <code>/32</code>), 80 → HTTPS e 443. O code-server escuta apenas em <code>127.0.0.1</code>.</p></div>
+      <div class="card"><span class="icone">🔑</span><h3>IAM com menor privilégio</h3>
+        <p>Nenhuma chave de acesso na EC2: uma IAM Role com SSM e leitura de <b>um único</b> segredo. Roles dedicadas ao CloudTrail e ao Backup.</p></div>
+      <div class="card"><span class="icone">🔒</span><h3>Criptografia</h3>
+        <p>EBS gp3 criptografado, logs com SSE-KMS (rotação automática), backups criptografados e TLS 1.2/1.3 no nginx.</p></div>
+      <div class="card"><span class="icone">🪣</span><h3>S3 protegido</h3>
+        <p>Block Public Access, versionamento, somente TLS, política restrita ao CloudTrail da conta e retenção de 365 dias.</p></div>
+      <div class="card"><span class="icone">🤫</span><h3>Segredos fora do código</h3>
+        <p>Senha gerada pelo Secrets Manager, ausente de parâmetros e outputs. <code>.pem</code> e <code>.env</code> bloqueados no <code>.gitignore</code>.</p></div>
+      <div class="card"><span class="icone">🖥️</span><h3>Instância endurecida</h3>
+        <p>IMDSv2 obrigatório, Amazon Linux 2023, versão do nginx oculta e acesso administrativo pelo Session Manager.</p></div>
+    </div>
+  </section>
+
+  <!-- 6. Auditoria e monitoramento -->
+  <section class="slide" data-titulo="Auditoria e monitoramento">
+    <p class="kicker">05 · Auditoria e monitoramento</p>
+    <h2>Toda chamada de API registrada e monitorada</h2>
+    <div class="colunas" style="grid-template-columns: 430px 1fr; gap: 30px;">
+      <div>
+        <ul>
+          <li><b>CloudTrail multirregião</b> → S3 com KMS e validação de integridade + CloudWatch Logs.</li>
+          <li><b>4 filtros de métrica</b>: chamadas ao EC2, alterações de SG, acessos negados e uso da root.</li>
+          <li><b>6 alarmes</b> → SNS → e-mail: CPU, status check, rede e os 2 de segurança.</li>
+          <li>Dashboard <code>dev-security-monitoring</code>.</li>
+        </ul>
+        <p class="aviso">🚨 <b>Na prática:</b> o alarme de <b>uso da conta root</b> foi acionado no ambiente real. A detecção funciona; a ação é operar com usuário IAM e MFA.</p>
+      </div>
+      <div style="display:grid; gap:14px;">
+        <figure>
+          <button class="zoom" type="button" aria-label="Ampliar captura: trail do CloudTrail">
+            <img src="images/cloudtrail_trails.png" alt="Trail infra-cloudtrail com região de origem São Paulo, multirregião e status Logging" width="1906" height="319" loading="lazy">
+          </button>
+        </figure>
+        <figure>
+          <button class="zoom" type="button" aria-label="Ampliar captura: dashboard de monitoramento">
+            <img src="images/dev-security-monitoring-dashboard.png" alt="Dashboard dev-security-monitoring com CPU, status checks, eventos do CloudTrail e status dos 6 alarmes" width="1901" height="914" loading="lazy">
+          </button>
+          <figcaption>Trail em <i>Logging</i> e dashboard com os 6 alarmes (captura anterior à correção dos painéis de rede).</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Backup -->
+  <section class="slide" data-titulo="Backup e recuperação">
+    <p class="kicker">06 · Backup e recuperação</p>
+    <h2>Backup diário automático pela tag <code style="font-size:.85em">Backup=true</code></h2>
+    <div class="numeros">
+      <div class="numero"><b>03:00</b><span>backup diário (America/Sao_Paulo)</span></div>
+      <div class="numero"><b>7 dias</b><span>retenção no vault criptografado</span></div>
+      <div class="numero"><b>24 h</b><span>RPO estimado</span></div>
+      <div class="numero"><b>15–30 min</b><span>RTO estimado (AMI + boot)</span></div>
+    </div>
+    <div class="colunas" style="grid-template-columns: 430px 1fr; gap: 30px;">
+      <ul>
+        <li>AWS Backup gera uma <b>AMI com snapshot do EBS</b>.</li>
+        <li>A seleção usa a tag: novas EC2 com <code>Backup=true</code> entram no plano.</li>
+        <li>A infraestrutura é recriada pelo código a partir do Git.</li>
+        <li class="suave">Teste de restauração documentado; registro pendente.</li>
+      </ul>
+      <figure>
+        <button class="zoom" type="button" aria-label="Ampliar captura: plano do AWS Backup">
+          <img src="images/awsbackup_plans.png" alt="Plano dev-codeserver-diario com a regra backup-diario no vault dev-codeserver-vault e a atribuição ec2-tag-backup" width="1910" height="795" loading="lazy">
+        </button>
+        <figcaption>Plano <code>dev-codeserver-diario</code> com a atribuição por tag.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- 8. Custos -->
+  <section class="slide" data-titulo="Custos">
+    <p class="kicker">07 · Custos</p>
+    <h2>Custo previsível e alertas antes de estourar</h2>
+    <div class="colunas" style="grid-template-columns: 560px 1fr; gap: 40px;">
+      <div>
+        <p class="total">~US$ 132<small> /mês</small></p>
+        <p class="suave" style="margin:6px 0 0; font-size:16px;">sa-east-1, sob demanda, ligado 24x7 (~US$ 4,35/dia)</p>
+        <ul class="barras" aria-label="Composição do custo mensal">
+          <li><span>NAT Gateway</span><span class="trilho"><span class="valor" style="--v:100%"></span></span><span class="num">67,89</span></li>
+          <li><span>EC2 t3.medium</span><span class="trilho"><span class="valor" style="--v:72%"></span></span><span class="num">49,06</span></li>
+          <li><span>IPv4 públicos (2)</span><span class="trilho"><span class="valor" style="--v:10.8%"></span></span><span class="num">7,30</span></li>
+          <li><span>EBS gp3 20 GiB</span><span class="trilho"><span class="valor" style="--v:4.5%"></span></span><span class="num">3,04</span></li>
+          <li><span>CloudWatch</span><span class="trilho"><span class="valor" style="--v:3.5%"></span></span><span class="num">2,40</span></li>
+          <li><span>KMS + Secrets</span><span class="trilho"><span class="valor" style="--v:2.1%"></span></span><span class="num">1,40</span></li>
+          <li><span>AWS Backup</span><span class="trilho"><span class="valor" style="--v:2.1%"></span></span><span class="num">≤ 1,40</span></li>
+        </ul>
+        <p class="suave" style="font-size:15px; margin:10px 0 0;">O NAT é ~51% do custo. Sem workload na sub-rede privada, ele é o 1º candidato a remover.</p>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:16px;">
+          <h3>AWS Budgets · US$ 50/mês</h3>
+          <p>E-mail com <b>50%</b> e <b>80%</b> do gasto real e <b>100%</b> do previsto. Ligado 24x7, a previsão avisa para desligar ou destruir.</p>
+        </div>
+        <figure>
+          <button class="zoom" type="button" aria-label="Ampliar captura: orçamento no AWS Budgets">
+            <img src="images/budgets_and_alerts.png" alt="Budget dev-codeserver-orcamento-mensal de 50 dólares com os 3 alertas configurados" width="1908" height="915" loading="lazy">
+          </button>
+          <figcaption>Tags de custo, gp3, CPU <i>standard</i> e <code>destroy.sh</code> reduzem o gasto.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. Riscos e próximos passos -->
+  <section class="slide" data-titulo="Riscos e próximos passos">
+    <p class="kicker">08 · Riscos e próximos passos</p>
+    <h2>O que falta para produção</h2>
+    <div class="grade">
+      <div class="card risco"><span class="nivel alto">Alto</span>
+        <div><h3>code-server exposto na 443</h3><p>Protegido só por senha. <b>→</b> Restringir IPs, ALB + WAF/Cognito ou port forwarding via SSM.</p></div></div>
+      <div class="card risco"><span class="nivel alto">Alto</span>
+        <div><h3>Uso da conta root</h3><p>Detectado pelo alarme. <b>→</b> Operar com usuário IAM ou de serviço e ativar MFA na root.</p></div></div>
+      <div class="card risco"><span class="nivel medio">Médio</span>
+        <div><h3>Certificado autoassinado</h3><p>Aviso no navegador. <b>→</b> Domínio próprio com ACM + ALB/CloudFront ou Let's Encrypt.</p></div></div>
+      <div class="card risco"><span class="nivel medio">Médio</span>
+        <div><h3>Uma única AZ</h3><p>EC2 e NAT na mesma zona. <b>→</b> Auto Scaling multi-AZ e um NAT por AZ.</p></div></div>
+      <div class="card risco"><span class="nivel medio">Médio</span>
+        <div><h3>Restauração não registrada</h3><p>Backup sem prova de recuperação. <b>→</b> Executar o teste da seção 6 e anexar a evidência.</p></div></div>
+      <div class="card risco"><span class="nivel baixo">Custo</span>
+        <div><h3>NAT sem workload</h3><p>~US$ 68/mês parado. <b>→</b> Remover se a sub-rede privada não for usada.</p></div></div>
+    </div>
+  </section>
+
+  <!-- 10. Encerramento -->
+  <section class="slide fim" data-titulo="Obrigado">
+    <p class="kicker">Encerramento</p>
+    <h2>Obrigado! Perguntas?</h2>
+    <p class="lead">Ao final da demonstração, o ambiente é removido por completo:</p>
+    <p class="comando" style="font-size:20px; padding:16px 26px;"><span class="c">$</span> ./destroy.sh <span class="c"># exclui as 7 stacks em ordem inversa</span></p>
+    <div class="links">
+      <a class="botao" href="https://github.com/romulow22/prj-upskilling">Repositório no GitHub</a>
+      <a class="botao secundario" href="https://github.com/romulow22/prj-upskilling#readme">Relatório completo (README)</a>
+    </div>
+    <p class="equipe-fim"><b>Romulo Alves</b> · <b>Gustavo Coelho</b> · <b>Marcos Andre</b> · <b>Rocilda Pacifico</b></p>
+  </section>
+
+  <div class="rodape">
+    <span>Infra Code Server · AWS sa-east-1</span>
+    <nav class="nav" aria-label="Navegação entre slides">
+      <button type="button" id="anterior" aria-label="Slide anterior">←</button>
+      <span id="contador" aria-live="polite">1 / 10</span>
+      <button type="button" id="proximo" aria-label="Próximo slide">→</button>
+    </nav>
+  </div>
+  <div class="progresso" id="progresso"></div>
+</main>
+
+<dialog id="ampliada" aria-label="Captura ampliada">
+  <img alt="">
+  <p>Clique ou pressione Esc para fechar</p>
+</dialog>
+
+<script>
+(() => {
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total = slides.length;
+  const contador = document.getElementById('contador');
+  const progresso = document.getElementById('progresso');
+  const anterior = document.getElementById('anterior');
+  const proximo = document.getElementById('proximo');
+  const dialogo = document.getElementById('ampliada');
+  const imgAmpliada = dialogo.querySelector('img');
+  const diagramas = document.querySelectorAll('svg.diagrama');
+  const tituloOriginal = document.title;
+  let atual = 0;
+
+  slides.forEach((s, i) => {
+    s.setAttribute('role', 'group');
+    s.setAttribute('aria-roledescription', 'slide');
+    s.setAttribute('aria-label', `${i + 1} de ${total}: ${s.dataset.titulo}`);
+  });
+
+  function ir(n) {
+    atual = Math.max(0, Math.min(total - 1, n));
+    slides.forEach((s, i) => {
+      const ativo = i === atual;
+      s.classList.toggle('ativo', ativo);
+      s.classList.toggle('antes', i < atual);
+      s.setAttribute('aria-hidden', String(!ativo));
+      s.inert = !ativo;
+    });
+    contador.textContent = `${atual + 1} / ${total}`;
+    progresso.style.width = `${((atual + 1) / total) * 100}%`;
+    anterior.disabled = atual === 0;
+    proximo.disabled = atual === total - 1;
+    document.title = atual === 0 ? tituloOriginal : `${slides[atual].dataset.titulo} · Infra Code Server`;
+    history.replaceState(null, '', `#${atual + 1}`);
+  }
+
+  function slideDoHash() {
+    const n = parseInt(location.hash.slice(1), 10);
+    return Number.isInteger(n) ? n - 1 : 0;
+  }
+
+  function escalar() {
+    const escala = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    document.documentElement.style.setProperty('--escala', escala);
+    // O Chrome não refaz o layout do texto em SVG quando a escala de um ancestral muda
+    diagramas.forEach((svg) => {
+      svg.style.display = 'none';
+      svg.getBoundingClientRect();
+      svg.style.display = '';
+    });
+  }
+
+  anterior.addEventListener('click', () => ir(atual - 1));
+  proximo.addEventListener('click', () => ir(atual + 1));
+  window.addEventListener('hashchange', () => ir(slideDoHash()));
+  window.addEventListener('resize', escalar);
+
+  document.addEventListener('keydown', (e) => {
+    if (dialogo.open || e.altKey || e.ctrlKey || e.metaKey) return;
+    const emControle = e.target.closest('button, a');
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': ir(atual + 1); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp': ir(atual - 1); break;
+      case ' ': if (emControle) return; ir(e.shiftKey ? atual - 1 : atual + 1); break;
+      case 'Home': ir(0); break;
+      case 'End': ir(total - 1); break;
+      case 'f': case 'F':
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen?.();
+        break;
+      default: return;
+    }
+    e.preventDefault();
+  });
+
+  let toqueX = null, toqueY = null;
+  document.addEventListener('touchstart', (e) => {
+    toqueX = e.touches[0].clientX; toqueY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (toqueX === null || dialogo.open) return;
+    const dx = e.changedTouches[0].clientX - toqueX;
+    const dy = e.changedTouches[0].clientY - toqueY;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) ir(dx < 0 ? atual + 1 : atual - 1);
+    toqueX = toqueY = null;
+  });
+
+  document.querySelectorAll('.zoom').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const img = botao.querySelector('img');
+      imgAmpliada.src = img.src;
+      imgAmpliada.alt = img.alt;
+      dialogo.showModal();
+    });
+  });
+  dialogo.addEventListener('click', () => dialogo.close());
+
+  escalar();
+  ir(slideDoHash());
+})();
+</script>
+</body>
+</html>
