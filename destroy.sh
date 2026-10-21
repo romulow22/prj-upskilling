@@ -12,7 +12,7 @@
 #==============================================================
 set -euo pipefail
 
-REGION="${REGION:-us-east-1}"
+REGION="${REGION:-sa-east-1}"
 BUCKET="${BUCKET:-contabil-11111992}"
 KEY_NAME="${KEY_NAME:-code-server}"
 

@@ -97,4 +97,4 @@ Outputs:
 
   BudgetURL:
     Description: Console do AWS Budgets
-    Value: https://us-east-1.console.aws.amazon.com/costmanagement/home#/budgets
+    Value: https://console.aws.amazon.com/costmanagement/home#/budgets

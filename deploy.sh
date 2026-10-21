@@ -18,7 +18,7 @@ set -euo pipefail
 #--------------------------------------------------------------
 # Configuração
 #--------------------------------------------------------------
-REGION="${REGION:-us-east-1}"
+REGION="${REGION:-sa-east-1}"
 BUCKET="${BUCKET:-contabil-11111992}"
 PROJETO="${PROJETO:-projeto-upskilling}"
 AMBIENTE="${AMBIENTE:-dev}"
@@ -149,6 +149,17 @@ etapa_templates() {
 
     aws s3api put-bucket-versioning --bucket "${BUCKET}" --region "${REGION}" \
       --versioning-configuration Status=Enabled
+  fi
+
+  # O nome do bucket é global: um bucket em outra região quebraria os TemplateURL (<bucket>.s3.<REGION>)
+  local regiao_bucket
+  regiao_bucket="$(aws s3api head-bucket --bucket "${BUCKET}" --region "${REGION}" \
+    --query BucketRegion --output text)"
+
+  if [[ "${regiao_bucket}" != "None" && "${regiao_bucket}" != "${REGION}" ]]; then
+    echo "ERRO: o bucket ${BUCKET} está na região ${regiao_bucket}, e não em ${REGION}." >&2
+    echo "Use outro nome (ex.: BUCKET=meu-bucket-${REGION} ./deploy.sh) ou exclua o bucket antigo." >&2
+    exit 1
   fi
 
   if [[ -f main.yaml ]]; then

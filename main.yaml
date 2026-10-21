@@ -13,7 +13,7 @@ Description: >
 Parameters:
   BucketS3:
     Type: String
-    Description: Endpoint do bucket com os templates (ex. meu-bucket.s3.us-east-1)
+    Description: Endpoint do bucket com os templates (ex. meu-bucket.s3.sa-east-1)
   NameVPC:
     Type: String
     Default: codeserver
