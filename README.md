@@ -1,6 +1,6 @@
 # Infraestrutura Cloud AWS — projeto-upskilling
 
-Relatório do projeto final do curso de **Infraestrutura Cloud AWS**, preenchido a partir do modelo [relatorio_infra_aws.docx](relatorio_infra_aws.docx).
+Relatório do projeto final do curso de **Infraestrutura Cloud AWS**, preenchido a partir do modelo [relatorio_infra_aws.docx](relatorio_infra_aws_preenchido.docx).
 
 | Projeto | Data | Região AWS | Repositório |
 |---|---|---|---|
